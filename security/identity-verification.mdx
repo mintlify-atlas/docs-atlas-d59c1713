@@ -1,0 +1,93 @@
+---
+title: "Identity verification, age checks, and geo-blocking"
+description: "How EcliPanel's identity verification works, what documents users submit, what admins review, and how geo-blocking affects verification availability."
+---
+
+EcliPanel includes a built-in identity verification system designed to satisfy EU compliance requirements including age verification. When the platform operator enables verification requirements, users must submit a government-issued ID document along with a selfie before they can access age-restricted features. This page explains the process from the user's perspective, what administrators see on the back end, and how geo-blocking interacts with verification availability.
+
+## Why identity verification exists
+
+Certain hosting contexts — particularly those regulated under EU law — require operators to confirm that users meet a minimum age threshold before granting access to specific services. EcliPanel satisfies this by collecting an ID document and a selfie from the user, storing them encrypted, and making them available for review by authorised administrators. The selfie is also optionally processed for age estimation to speed up the review workflow.
+
+<Note>
+  Identity verification is subject to geo-block policy. Users in countries blocked at the highest restriction level cannot submit a verification request. See [Geo-blocking](#geo-blocking) below for details.
+</Note>
+
+## Supported verification types
+
+EcliPanel currently supports two verification paths:
+
+| Type | What to submit |
+|---|---|
+| **Age selfie** | A selfie photograph used for age estimation via the face analysis service |
+| **EU ID verification** | A government-issued ID document (passport, national ID card, etc.) plus a selfie |
+
+<Info>
+  The EU ID verification path requires both files. Submitting only one will result in a validation error.
+</Info>
+
+## Submitting a verification request
+
+Verification is submitted from the **Identity** section of the dashboard, accessible from the left navigation bar.
+
+<Steps>
+  <Step title="Open the Identity dashboard">
+    Click **Identity** in the left navigation. The page shows your current verification status and any previous submissions.
+  </Step>
+  <Step title="Start a new submission">
+    Click **Submit verification**. Select whether you are submitting an age selfie or a full EU ID verification.
+  </Step>
+  <Step title="Upload your documents">
+    For EU ID verification, upload a photo of your government-issued ID document and then upload your selfie. Both files must be valid image files. For an age selfie submission, only the selfie is required.
+  </Step>
+  <Step title="Submit">
+    Review the files you have selected and click **Submit**. Your submission is encrypted and stored securely. You cannot view or retrieve the files after submission.
+  </Step>
+  <Step title="Wait for review">
+    Your verification status changes to **Pending**. An administrator will review your submission and approve or reject it. You will receive a notification when the decision is made.
+  </Step>
+</Steps>
+
+<Warning>
+  Verification submissions are rate-limited. You can make a limited number of attempts per day and per IP address. If you are blocked, wait until the next day before trying again.
+</Warning>
+
+## Verification statuses
+
+After submitting, your verification entry will be in one of the following states:
+
+| Status | Meaning |
+|---|---|
+| Pending | Your submission is awaiting administrator review |
+| Approved | Your identity has been verified successfully |
+| Rejected | Your submission was rejected; contact support if you believe this is an error |
+
+## What administrators can see
+
+Administrators with the `admin:kyc:view` permission can see a list of all verification submissions in **Admin Panel → Verifications**. Each entry shows the user, submission timestamp, provider type, and current status.
+
+Administrators with the additional `admin:kyc:view:id` permission can open a submission and view the uploaded ID document and selfie. Administrators with `admin:kyc:manage` can approve, reject, or delete verification records.
+
+<Warning>
+  ID documents and selfies are sensitive personal data. Access to them is gated behind separate, explicit permissions (`admin:kyc:view:id`) that should only be granted to staff who genuinely need to review them.
+</Warning>
+
+## Geo-blocking
+
+EcliPanel's geo-block system assigns countries to restriction levels based on operator-configured rules. At the highest restriction level, the `/public/geoblock` endpoint returns a block response and identity verification is unavailable for users billing from that country.
+
+The current geo-block level for a country can be queried through the public endpoint:
+
+```bash
+curl https://your-panel.example.com/public/geoblock
+```
+
+If your country is blocked and you believe this is an error, contact the platform administrator.
+
+## The `EU_ID_DISABLED` flag
+
+Platform operators can set the `EU_ID_DISABLED=true` environment variable on the backend to fully disable the EU identity verification path. When this flag is active, the EU ID verification option is hidden and submission attempts return an error. The age-selfie path may still be available depending on other configuration.
+
+<Info>
+  If you see no verification options in the Identity dashboard, your platform administrator may have disabled identity verification. Contact them for guidance.
+</Info>

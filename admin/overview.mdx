@@ -1,0 +1,75 @@
+---
+title: 'Staff and administration portal overview'
+description: 'A unified control surface for EcliPanel staff: manage users, servers, nodes, billing, security, and panel-wide settings from a single tabbed interface.'
+icon: 'shield'
+---
+
+The Staff Portal is EcliPanel's centralized administration interface, accessible at `/dashboard/admin`. It surfaces every cross-cutting operational concern — from user lifecycle management to node health, fraud detection, and panel configuration — without requiring direct database or shell access. Only accounts holding the `admin:access` permission, or any granular admin permission, are admitted; all others are silently redirected to the user dashboard.
+
+<Note>
+  Access to individual tabs is gated by specific permissions (e.g., `users:read`, `servers:read`, `eggs:read`). A staff member may see only the tabs their role grants. Contact a root administrator to adjust role permissions via the Roles tab or the CLI.
+</Note>
+
+## Accessing the portal
+
+Navigate to **Administration → Staff Portal** in the sidebar. The link carries a **Staff** badge and is only rendered for accounts with at least one qualifying permission. The portal opens on the **Users** tab by default; the active tab is reflected in the URL query string so deep links work correctly.
+
+## Portal sections
+
+The admin portal is organized into tabs. Each tab lazy-loads its content and is hidden if your account lacks the required permission.
+
+| Tab | Permission(s) required | Purpose |
+|---|---|---|
+| Users | `users:read` | List, search, edit, and manage user accounts |
+| Metrics | `admin:metrics` | Live API and system performance metrics |
+| Export Jobs | `admin:export-jobs` | Monitor and download user data exports |
+| Organisations | `org:read` | Inspect and edit organisations |
+| Servers | `servers:read` | View, suspend, and manage all servers |
+| Tickets | `tickets:read` | Support ticket queue and reply |
+| Applications | `applications:manage` | Application form submissions |
+| KYC (Verifications) | `idverification:read` | Identity verification review |
+| Deletions | `deletions:write` | Expedite or cancel account deletion requests |
+| Nodes | `nodes:read` | Node health, classification, and heartbeats |
+| Tunnels | `tunnels:read` | EcliTunnel device and allocation management |
+| Eggs | `eggs:read` | Server type templates — create, edit, import |
+| AI Models | `ai:read` | Manage AI model endpoints and user links |
+| Announcements | `admin:announcements` | Broadcast messages to users |
+| Outbound Emails | `admin:outbound-emails` | Inspect all outbound transactional email |
+| Anti-Abuse | `admin:antiabuse` | Rust anti-abuse incident review and bulk actions |
+| Fraud | `admin:fraud` | Fraud alerts, scanning, and bulk dismissal |
+| Roles | `roles:read` | Create and edit roles and their permissions |
+| Logs | `logs:read` | API request logs and slow query collector |
+| OAuth | `oauth:manage` | Registered OAuth application management |
+| Databases | `databases:read` | Database host configuration |
+| Plans | `admin:plans:view` | Billing plan management |
+| Orders | `orders:view` | Order inspection and manual issuance |
+| Short URLs | `admin.shorturl.add` | Create and manage short redirect URLs |
+| Settings | `admin:settings` | Feature flags, panel settings, geo-block rules |
+| Rollouts | `admin:access` | Gradual feature rollout management |
+| Feedback | `admin:access` | User-submitted feedback review |
+
+## SOC Dashboard
+
+The Security Operations Center (SOC) dashboard at `/dashboard` (the top-level panel home) provides an at-a-glance security and usage summary for staff. The SOC API (`/api/soc/overview`) returns aggregate metrics — active server counts, node states, pending ticket volumes, and per-user resource usage via `/api/soc/usage/user/:id` and `/api/soc/usage/org/:id`. Staff use this view to spot anomalies before drilling into the dedicated admin tabs.
+
+## Global search
+
+The Staff Portal includes a cross-entity global search powered by `GET /api/admin/search`. A single query returns matching users, organisations, servers, and orders simultaneously, making it the fastest way to locate a specific entity without knowing its internal ID.
+
+## Privacy mode
+
+When you first open the portal a privacy dialog prompts you to choose how sensitive data (names, IPs, billing details) is displayed. Your choice is persisted to `localStorage` as `eclipanel_admin_privacy` and can be toggled at any time. This prevents accidental exposure of PII when sharing a screen.
+
+## Explore further
+
+<CardGroup cols={2}>
+  <Card title="Managing users" icon="users" href="/admin/user-management">
+    Search accounts, apply plans, manage verification status, and handle deletion requests.
+  </Card>
+  <Card title="Eggs and configuration" icon="egg" href="/admin/eggs-and-configuration">
+    Create and import server type templates and manage panel-wide settings.
+  </Card>
+  <Card title="Feature flags" icon="toggle-left" href="/admin/feature-flags">
+    Enable or disable registration, billing, AI, DNS, OAuth, tunnels, and more.
+  </Card>
+</CardGroup>

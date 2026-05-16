@@ -1,0 +1,118 @@
+---
+title: "Anti-abuse protection with the EcliPanel daemon"
+description: "How EcliPanel's Rust anti-abuse daemon watches outbound network traffic on each node, detects abuse patterns, and automatically suspends offending servers."
+---
+
+EcliPanel ships a purpose-built Rust daemon that runs alongside Wings on each node and watches outbound network traffic in real time. When the daemon detects a pattern that looks like abuse — a DDoS burst, a port scan, crypto-mining traffic, or a UDP amplification attack — it takes immediate action: suspending the offending server, filing an incident report with the backend, and triggering an email to the server owner. Administrators can review every incident in the admin panel. Because the daemon is compiled to a single native binary, it adds negligible overhead to the node.
+
+## What the daemon monitors
+
+The daemon inspects every outbound TCP and UDP connection originating from containers on the node. It tracks:
+
+- **Source and destination IPs and ports** to determine connection direction and identify internal containers.
+- **Hit counts and unique IP counts** within configurable fast and slow time windows.
+- **Port distribution across destinations** to recognise sequential or wide-range port scanning.
+- **Mining-port connections** to detect suspected crypto-mining pool traffic.
+- **UDP amplification targets** (DNS, NTP, memcached, and similar amplification-capable services).
+
+Ephemeral ports (32768 and above) are excluded from port-scan detection so that normal game-server return traffic — where players connect from high-numbered OS-assigned ports — does not generate false positives.
+
+## Detection types
+
+| Detection type | What triggers it |
+|---|---|
+| `ddos_fast_threshold_tcp` / `_udp` | High connection counts to many unique IPs within the fast time window |
+| `ddos_slow_threshold_tcp` / `_udp` | Sustained high connection counts across the slow time window |
+| `port_scan_unique_ports_tcp` / `_udp` | More unique non-ephemeral destination ports than the configured threshold |
+| `port_scan_sequential_tcp` / `_udp` | A run of consecutively numbered destination ports |
+| `udp_amplification_attack` | Outbound UDP to known amplification-capable ports (DNS :53, NTP :123, memcached :11211, etc.) |
+| `udp_flood` | High UDP hit count across many unique destination IPs |
+| `crypto_mining_pool_ports` | Outbound connections to known mining pool ports (3333, 4444, 5555, 6666, 7777, 14444) |
+
+<Info>
+  The detection thresholds, time windows, and safe-port list are all configurable through the daemon's `.env` file. Refer to `.env.example` in the `antiabuse/` directory for every available option.
+</Info>
+
+## What happens when abuse is detected
+
+The daemon follows a strike-based escalation ladder:
+
+1. **Alert** — An incident is recorded and reported to the backend. No action is taken on the server.
+2. **Throttle** — The server's CPU is capped for a configurable duration via the backend API.
+3. **Suspend** — The server is stopped and marked as suspended via the backend API.
+
+UDP amplification attacks and very broad port scans (many unique ports across multiple IPs) skip straight to suspension regardless of strike count.
+
+Once the suspension call succeeds:
+
+- The backend marks the server as suspended.
+- An email is sent to the server owner explaining what was detected.
+- The incident appears in the **Admin Panel → Anti-Abuse** section, where staff can review the detection metrics, recent connection events, and decide whether to unsuspend the server.
+
+<Note>
+  If a server is already offline, stopped, or hibernated when a detection fires, suspension is skipped and the incident is recorded as an alert instead.
+</Note>
+
+## Deploying the daemon
+
+The daemon must run as `root` on each Wings node so it can capture raw network traffic. The recommended deployment path is a compiled binary managed by systemd.
+
+<Steps>
+  <Step title="Configure the environment">
+    Copy the example environment file and fill in your values:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    At a minimum you must set `BACKEND_URL` (the URL of your EcliPanel backend) and `ANTIABUSE_API_KEY` (a key with the `admin:antiabuse` permission).
+  </Step>
+  <Step title="Build the binary">
+    Compile a release build with Cargo:
+
+    ```bash
+    cargo build --release
+    ```
+
+    The binary is produced at `target/release/eclipanel-antiabuse`.
+  </Step>
+  <Step title="Install the systemd unit">
+    Copy the provided unit file, reload the systemd daemon, and enable the service:
+
+    ```bash
+    sudo cp ./EcliPanel/systemd/eclipanel-antiabuse.service /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now eclipanel-antiabuse
+    ```
+  </Step>
+  <Step title="Verify the service is running">
+    Check the service status and confirm it started without errors:
+
+    ```bash
+    sudo systemctl status eclipanel-antiabuse
+    ```
+  </Step>
+</Steps>
+
+The unit file runs the daemon with `Restart=always` and `RestartSec=3`, so it recovers automatically from transient failures. The `WorkingDirectory` in the unit file points to your deployment path — update it if you deploy to a different location.
+
+<Warning>
+  The daemon reads your `.env` file at startup from its `WorkingDirectory`. Make sure the file exists and contains all required variables before starting the service, or the daemon will exit immediately.
+</Warning>
+
+## Viewing incidents in the admin panel
+
+Every incident the daemon reports is visible to administrators at **Admin Panel → Anti-Abuse**. Each record shows:
+
+- The server name and ID
+- The detection type and human-readable reason
+- Enforcement action taken (alert, throttle, or suspend)
+- Strike count at the time of detection
+- Detailed metrics (unique IPs, hit counts, time-window data)
+- A log of the most recent connection events that contributed to the detection
+
+Administrators with the `admin:antiabuse` permission can update an incident's status or delete it from the panel. Bulk status changes and bulk deletions are also supported for high-volume situations.
+
+<Tip>
+  If a suspension was incorrectly triggered — for example because a user was running a legitimate network stress test — you can unsuspend the server from **Admin Panel → Servers** and close or dismiss the incident in the Anti-Abuse panel.
+</Tip>

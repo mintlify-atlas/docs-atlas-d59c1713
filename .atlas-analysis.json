@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "EcliPanel",
+  "projectType": "saas",
+  "projectName": "EcliPanel",
+  "projectDescription": "EcliPanel is an enterprise-grade game server control panel and orchestration platform that provides multi-tenant management of game servers, Wings nodes, DNS, billing, AI endpoints, and abuse protection.",
   "theme": "aspen",
-  "colors": {
-    "primary": "#d49eab",
-    "light": "#95647c"
-  },
-  "favicon": "https://media.brand.dev/47c19af0-40f1-46ed-9ff0-7682fbae2348.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/thenoname-gurl/EcliPanel"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/thenoname-gurl/EcliPanel"
-    }
-  },
+  "primaryColor": "#d49eab",
+  "lightColor": "#95647c",
+  "darkColor": null,
   "navigation": {
     "tabs": [
       {
@@ -98,5 +86,49 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Multi-tenant game server management with Wings node orchestration",
+    "Organisation and team management with role-based access control",
+    "Integrated billing system with plans, orders, and PDF invoices",
+    "AI chat and studio endpoints with OpenAI-compatible API proxy",
+    "Rust-based anti-abuse daemon detecting DDoS, port scanning, and crypto mining",
+    "EcliTunnel: secure TCP tunnel system with client and server Rust agents",
+    "DNS management via Cloudflare and PowerDNS integration",
+    "Built-in mailbox system powered by Mailcow/Dovecot integration",
+    "Identity verification with selfie/age checks and EU ID support",
+    "Real-time WebSocket console, file manager, and server stats via SFTP and Wings proxy",
+    "Feature flags system enabling/disabling registration, billing, AI, DNS, OAuth, and more",
+    "SOC (Security Operations Center) dashboard for monitoring usage and abuse incidents"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/login",
+    "POST /api/auth/logout",
+    "GET /api/auth/session",
+    "POST /api/users/register",
+    "GET /api/servers",
+    "GET /api/servers/:id",
+    "POST /api/servers/:id/power",
+    "GET /api/servers/:id/files",
+    "GET /api/servers/:id/stats",
+    "WS /api/servers/:id/websocket",
+    "GET /api/nodes",
+    "GET /api/organisations",
+    "GET /api/orders",
+    "GET /api/plans",
+    "POST /api/ai/chat",
+    "POST /api/ai/openai/v1/chat/completions",
+    "GET /api/tickets",
+    "POST /api/tickets/create",
+    "GET /api/tunnel/allocations",
+    "GET /api/admin/stats",
+    "GET /api/admin/users",
+    "GET /api/admin/servers",
+    "GET /api/soc/overview",
+    "GET /api/roles",
+    "GET /api/permissions",
+    "GET /api/eggs",
+    "GET /api/admin/settings",
+    "GET /api/public/features"
+  ]
 }

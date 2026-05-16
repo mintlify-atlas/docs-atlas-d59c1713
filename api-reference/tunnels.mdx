@@ -1,0 +1,149 @@
+---
+title: "EcliTunnel device and allocation API endpoints"
+description: "Manage EcliTunnel devices, allocations, and port forwarding. Devices require panel approval before the Rust agent establishes its WebSocket control channel."
+---
+
+EcliTunnel lets game servers running behind NAT expose ports to players without requiring a public IP. A tunnel device registers with the panel via a device code flow—similar to OAuth device authorization—and once approved, the tunnel agent opens a persistent WebSocket control channel and relays traffic to allocated ports.
+
+<Note>Tunnel endpoints require the `tunnels` feature flag to be enabled in panel settings. Enterprise node operators typically manage tunnels for their users.</Note>
+
+---
+
+## Allocations
+
+### List tunnel allocations
+
+`GET /api/tunnel/allocations`
+
+Returns all port allocations assigned to tunnel devices the authenticated user can manage.
+
+```bash
+curl https://your-panel.example.com/api/tunnel/allocations \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Allocation ID.</ResponseField>
+<ResponseField name="port" type="number">Allocated port number on the tunnel server.</ResponseField>
+<ResponseField name="deviceId" type="string">UUID of the tunnel device this port is assigned to.</ResponseField>
+<ResponseField name="protocol" type="string">Transport protocol: `tcp` or `udp`.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>
+
+---
+
+## Devices
+
+### List tunnel devices
+
+`GET /api/tunnel/devices`
+
+Returns all tunnel devices owned by the authenticated user or by organisations they manage.
+
+```bash
+curl https://your-panel.example.com/api/tunnel/devices \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="string">Device UUID.</ResponseField>
+<ResponseField name="name" type="string">Device display name.</ResponseField>
+<ResponseField name="kind" type="string">Device role: `client` or `server`.</ResponseField>
+<ResponseField name="approved" type="boolean">Whether the device has been approved by an admin.</ResponseField>
+<ResponseField name="userCode" type="string">Human-readable activation code shown during the enrollment flow.</ResponseField>
+<ResponseField name="expiresAt" type="string">ISO 8601 expiry time for pending (unapproved) devices.</ResponseField>
+
+---
+
+### Start device enrollment
+
+`POST /api/tunnel/device/start`
+
+Initiates the device code enrollment flow. The returned `deviceCode` and `userCode` are used to complete pairing. Unapproved devices expire after 10 minutes.
+
+<ParamField body="name" type="string" required>Human-readable name for the device (e.g. `home-server`).</ParamField>
+<ParamField body="kind" type="string">Device role: `client` (default) or `server`. Creating a `server`-kind device requires admin access.</ParamField>
+<ParamField body="organisationId" type="number">Associate the device with a specific organisation. The caller must be an admin or owner of that organisation.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/tunnel/device/start \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"gaming-rig","kind":"client"}'
+```
+
+<ResponseField name="deviceCode" type="string">Unique code used by the tunnel client to authenticate.</ResponseField>
+<ResponseField name="userCode" type="string">Short human-readable code displayed to the user during approval.</ResponseField>
+<ResponseField name="expiresAt" type="string">ISO 8601 expiry time. Enrollment must be approved before this time.</ResponseField>
+
+---
+
+### Poll device status
+
+`GET /api/tunnel/device/poll`
+
+Used by the tunnel client to check whether its enrollment has been approved. Poll this endpoint until `approved` is `true` or the device expires.
+
+<ParamField query="deviceCode" type="string" required>Device code returned by `/api/tunnel/device/start`.</ParamField>
+
+```bash
+curl "https://your-panel.example.com/api/tunnel/device/poll?deviceCode=<code>" \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="approved" type="boolean">Whether the device has been approved.</ResponseField>
+<ResponseField name="token" type="string">JWT token issued to the device once approved. The tunnel agent uses this to authenticate its WebSocket connection.</ResponseField>
+
+---
+
+### Approve a device
+
+`POST /api/tunnel/device/approve`
+
+Approves a pending tunnel device. Requires admin access.
+
+<ParamField body="userCode" type="string" required>The human-readable user code shown during enrollment.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/tunnel/device/approve \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"userCode":"ABCD-1234"}'
+```
+
+<ResponseField name="success" type="boolean">Whether the device was approved.</ResponseField>
+<ResponseField name="device" type="object">The approved device record.</ResponseField>
+
+---
+
+### Delete a device
+
+`DELETE /api/tunnel/devices/:id/delete`
+
+Removes a tunnel device and all its port allocations. The device's WebSocket connection is closed immediately.
+
+<Warning>Deleting a device disconnects it immediately. Any active game server connections routed through this tunnel will be interrupted.</Warning>
+
+<ParamField path="id" type="string" required>Device UUID.</ParamField>
+
+```bash
+curl -X DELETE https://your-panel.example.com/api/tunnel/devices/abc-uuid/delete \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="success" type="boolean">Whether the device was deleted.</ResponseField>
+
+---
+
+### Regenerate device token
+
+`POST /api/tunnel/devices/:id/regenerate-token`
+
+Issues a new authentication token for a device. The existing token is immediately invalidated, forcing the tunnel agent to reconnect.
+
+<ParamField path="id" type="string" required>Device UUID.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/tunnel/devices/abc-uuid/regenerate-token \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="success" type="boolean">Whether the token was regenerated.</ResponseField>
+<ResponseField name="token" type="string">The new device JWT token.</ResponseField>

@@ -1,0 +1,39 @@
+---
+title: "EcliPanel: enterprise multi-tenant game server panel"
+description: "Open-source control panel for game servers with Wings orchestration, DNS, billing, AI endpoints, and Rust-powered anti-abuse detection on every node."
+---
+
+EcliPanel is an enterprise-grade server management platform designed for hosting providers, teams, and game server owners who need a single, secure interface to provision and control servers across a distributed infrastructure. Built entirely in-house — with a Bun/Elysia backend, a Next.js frontend, and Rust components for anti-abuse and tunneling — EcliPanel v3 is a complete rewrite of the original platform, built from scratch for long-term maintainability and extensibility.
+
+## What EcliPanel does
+
+EcliPanel covers the full server lifecycle: from provisioning new game servers and managing files and databases, to monitoring real-time resource usage, controlling power states, scheduling tasks, and handling support tickets. Beyond basic server management, it ships with integrated DNS management, a billing and orders system, AI Studio and Chat endpoints, and secure TCP tunneling via EcliTunnel.
+
+Every node in your network runs the wings-rs agent, and EcliPanel's backend proxies WebSocket connections and REST requests to those nodes. A Rust anti-abuse daemon runs alongside wings-rs on each node, detecting and reporting DDoS attempts, port scanning, crypto mining, and other abuse patterns in real time.
+
+## Who it's for
+
+EcliPanel is built for three types of operators:
+
+- **Hosting providers** who need multi-tenant workspaces, billing, invoicing, and per-organisation DNS zones
+- **Teams and organisations** that share servers and nodes with granular role-based access control
+- **Game server owners** who want a modern, self-hosted alternative to traditional panels with full API access
+
+## Why v3
+
+EcliPanel v3 is a ground-up rewrite of EcliPanel v1, which was itself based on Jexactyl. The v1 architecture made long-term maintenance impractical. v3 replaces it with a fully in-house backend and a modernized frontend, while keeping the project open source for non-commercial use.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install Wings, configure the backend and frontend, and get your first server running
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how the backend, frontend, Wings nodes, anti-abuse daemon, and tunnels fit together
+  </Card>
+  <Card title="Core features" icon="list-check" href="/features/server-management">
+    Explore server management, organisations, billing, DNS, AI, and tunneling features
+  </Card>
+  <Card title="API reference" icon="code" href="/api-reference/overview">
+    Browse the full REST API — also available live at your backend's `/openapi` route
+  </Card>
+</CardGroup>

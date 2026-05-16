@@ -1,0 +1,177 @@
+---
+title: "Support tickets and application form API endpoints"
+description: "Open, reply to, and retrieve support tickets. Covers ticket stats for staff, AI-assisted replies, and application form submission endpoints."
+---
+
+EcliPanel's ticketing system handles user support requests with an optional AI-assisted reply feature. Tickets are categorised by department and priority, and can be answered either by a staff member or by the AI model linked to the panel. Application forms provide a structured intake alternative to free-form tickets.
+
+<Note>Ticket endpoints require the `ticketing` feature flag to be enabled. Application form endpoints require the `applications` feature flag.</Note>
+
+---
+
+## Tickets
+
+### List tickets
+
+`GET /api/tickets`
+
+Returns all tickets belonging to the authenticated user, or all tickets if the caller has staff-level access.
+
+```bash
+curl https://your-panel.example.com/api/tickets \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Ticket ID.</ResponseField>
+<ResponseField name="subject" type="string">Ticket subject line.</ResponseField>
+<ResponseField name="status" type="string">Current status: `open`, `pending`, `resolved`, or `closed`.</ResponseField>
+<ResponseField name="priority" type="string">Priority level: `urgent`, `high`, `medium`, or `low`.</ResponseField>
+<ResponseField name="department" type="string">Department the ticket is assigned to: `Technical Support`, `Billing`, `Sales`, or `Security`.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updatedAt" type="string">ISO 8601 last-updated timestamp.</ResponseField>
+
+---
+
+### Create ticket
+
+`POST /api/tickets/create`
+
+<ParamField body="subject" type="string" required>Short subject line for the ticket.</ParamField>
+<ParamField body="message" type="string" required>Initial message body.</ParamField>
+<ParamField body="priority" type="string">One of `urgent`, `high`, `medium`, or `low`. Defaults to `medium`.</ParamField>
+<ParamField body="department" type="string">One of `Technical Support`, `Billing`, `Sales`, or `Security`. Defaults to `Technical Support`.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/tickets/create \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "Cannot start my Minecraft server",
+    "message": "I get an error when clicking the start button. The logs show OOM.",
+    "priority": "high",
+    "department": "Technical Support"
+  }'
+```
+
+<ResponseField name="success" type="boolean">Whether the ticket was created.</ResponseField>
+<ResponseField name="ticket" type="object">
+  <Expandable title="properties">
+    <ResponseField name="id" type="number">New ticket ID.</ResponseField>
+    <ResponseField name="subject" type="string">Ticket subject.</ResponseField>
+    <ResponseField name="status" type="string">Initial status (`open`).</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Get ticket details
+
+`GET /api/tickets/:id`
+
+Returns a ticket and its full reply thread.
+
+<ParamField path="id" type="number" required>Ticket ID.</ParamField>
+
+```bash
+curl https://your-panel.example.com/api/tickets/42 \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Ticket ID.</ResponseField>
+<ResponseField name="subject" type="string">Ticket subject.</ResponseField>
+<ResponseField name="status" type="string">Current status.</ResponseField>
+<ResponseField name="replies" type="object[]">
+  <Expandable title="reply properties">
+    <ResponseField name="id" type="number">Reply ID.</ResponseField>
+    <ResponseField name="message" type="string">Reply body.</ResponseField>
+    <ResponseField name="authorId" type="number">User ID of the reply author.</ResponseField>
+    <ResponseField name="isStaff" type="boolean">Whether the reply was made by a staff member or the AI.</ResponseField>
+    <ResponseField name="createdAt" type="string">ISO 8601 timestamp.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Reply to a ticket
+
+`POST /api/tickets/:id/reply`
+
+<ParamField path="id" type="number" required>Ticket ID.</ParamField>
+<ParamField body="message" type="string" required>Reply message body.</ParamField>
+
+<Tip>If AI is enabled and configured, staff replies may be AI-generated based on panel policy knowledge. The AI is aware of geo-block rules, tax settings, and other panel configuration when formulating responses.</Tip>
+
+```bash
+curl -X POST https://your-panel.example.com/api/tickets/42/reply \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Thank you for the report. Please increase your RAM allocation to 4096 MB."}'
+```
+
+<ResponseField name="success" type="boolean">Whether the reply was saved.</ResponseField>
+<ResponseField name="reply" type="object">The created reply record.</ResponseField>
+
+---
+
+### Ticket statistics
+
+`GET /api/tickets/stats`
+
+Returns aggregate ticket counts by status. Useful for staff dashboards.
+
+```bash
+curl https://your-panel.example.com/api/tickets/stats \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="open" type="number">Count of open tickets.</ResponseField>
+<ResponseField name="pending" type="number">Count of pending tickets.</ResponseField>
+<ResponseField name="resolved" type="number">Count of resolved tickets.</ResponseField>
+<ResponseField name="closed" type="number">Count of closed tickets.</ResponseField>
+
+---
+
+## Application forms
+
+Application forms provide structured intake for requests that don't fit a standard support ticket—for example, beta access requests, verification submissions, or onboarding workflows.
+
+### List application forms
+
+`GET /api/applications/forms`
+
+Returns forms the authenticated user is eligible to view and submit.
+
+```bash
+curl https://your-panel.example.com/api/applications/forms \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Form ID.</ResponseField>
+<ResponseField name="title" type="string">Form title.</ResponseField>
+<ResponseField name="description" type="string">Short description of the form's purpose.</ResponseField>
+<ResponseField name="active" type="boolean">Whether the form is accepting submissions.</ResponseField>
+<ResponseField name="maxSubmissionsPerUser" type="number">Maximum submissions per user. Default is `5`.</ResponseField>
+
+---
+
+### Submit an application
+
+`POST /api/applications/forms/:id/submit`
+
+<ParamField path="id" type="number" required>Form ID.</ParamField>
+<ParamField body="responses" type="object" required>Key-value map of field IDs to response values, as defined by the form's question schema.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/applications/forms/7/submit \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "responses": {
+      "reason": "I want to join the beta to test the new tunnel feature.",
+      "experience": "3 years of game server administration"
+    }
+  }'
+```
+
+<ResponseField name="success" type="boolean">Whether the submission was accepted.</ResponseField>
+<ResponseField name="submissionId" type="number">ID of the created submission record.</ResponseField>

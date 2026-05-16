@@ -1,0 +1,259 @@
+---
+title: "Admin panel, SOC, and audit log API endpoints"
+description: "Panel-wide statistics, global search, fraud detection, anti-abuse incident management, feature rollouts, audit logs, and SOC overview for admin accounts."
+---
+
+Admin endpoints provide staff with visibility and control over the entire EcliPanel installation. They cover panel-wide statistics, server and user management overrides, global search, fraud detection, anti-abuse incident tracking, feature rollouts, and system logs. All endpoints in this section require staff or admin-level access unless otherwise noted.
+
+<Warning>These endpoints expose sensitive operational data and perform destructive actions. Access should be restricted to trusted staff accounts via the role/permission system.</Warning>
+
+---
+
+## Statistics and metrics
+
+### Panel statistics
+
+`GET /api/admin/stats`
+
+Returns high-level counts across the panel: total users, servers, nodes, organisations, open tickets, and active fraud alerts.
+
+```bash
+curl https://your-panel.example.com/api/admin/stats \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="users" type="number">Total registered user accounts.</ResponseField>
+<ResponseField name="servers" type="number">Total provisioned servers.</ResponseField>
+<ResponseField name="nodes" type="number">Total registered nodes.</ResponseField>
+<ResponseField name="organisations" type="number">Total organisations.</ResponseField>
+<ResponseField name="openTickets" type="number">Tickets in `open` or `pending` status.</ResponseField>
+<ResponseField name="fraudAlerts" type="number">Active unresolved fraud alerts.</ResponseField>
+
+---
+
+### Panel metrics
+
+`GET /api/admin/metrics`
+
+Returns time-series performance metrics for the panel backend: request rates, response times, error rates, and Redis/database latency.
+
+```bash
+curl https://your-panel.example.com/api/admin/metrics \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+## User and server management
+
+### List all users
+
+`GET /api/admin/users`
+
+Returns a paginated list of all user accounts with profile, tier, and fraud fields.
+
+<ParamField query="page" type="number" default="1">Page number.</ParamField>
+<ParamField query="limit" type="number" default="50">Results per page.</ParamField>
+<ParamField query="search" type="string">Filter by email, name, or user ID.</ParamField>
+
+```bash
+curl "https://your-panel.example.com/api/admin/users?search=alice&limit=20" \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### List all servers
+
+`GET /api/admin/servers`
+
+Returns all game servers across all users and nodes.
+
+```bash
+curl https://your-panel.example.com/api/admin/servers \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Create server (admin)
+
+`POST /api/admin/servers`
+
+Creates a server on behalf of any user, bypassing normal plan limits.
+
+<ParamField body="userId" type="number" required>Owner's user ID.</ParamField>
+<ParamField body="name" type="string" required>Server display name.</ParamField>
+<ParamField body="nodeId" type="number" required>Node to deploy on.</ParamField>
+<ParamField body="eggId" type="number" required>Egg (server type) ID.</ParamField>
+<ParamField body="memory" type="number">RAM in megabytes.</ParamField>
+<ParamField body="disk" type="number">Disk in megabytes.</ParamField>
+<ParamField body="cpu" type="number">CPU percentage.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/admin/servers \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"userId":55,"name":"Staff Test","nodeId":1,"eggId":3,"memory":1024,"disk":5120,"cpu":100}'
+```
+
+---
+
+### List all nodes
+
+`GET /api/admin/nodes`
+
+Returns all registered nodes including health status. Equivalent to `GET /api/nodes` but always returns the full list regardless of the caller's portal tier.
+
+```bash
+curl https://your-panel.example.com/api/admin/nodes \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+## Search
+
+### Global search
+
+`GET /api/admin/search`
+
+Searches across users, servers, nodes, and organisations simultaneously.
+
+<ParamField query="q" type="string" required>Search query string (minimum 2 characters).</ParamField>
+
+```bash
+curl "https://your-panel.example.com/api/admin/search?q=minecraft" \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="users" type="object[]">Matching user records.</ResponseField>
+<ResponseField name="servers" type="object[]">Matching server records.</ResponseField>
+<ResponseField name="nodes" type="object[]">Matching node records.</ResponseField>
+<ResponseField name="organisations" type="object[]">Matching organisation records.</ResponseField>
+
+---
+
+## Security operations (SOC)
+
+### SOC overview
+
+`GET /api/soc/overview`
+
+Returns the SOC dashboard snapshot: active fraud alerts, recent anti-abuse incidents, suspended accounts, and DMCA takedowns.
+
+```bash
+curl https://your-panel.example.com/api/soc/overview \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="fraudAlerts" type="object[]">Recent unresolved fraud alerts.</ResponseField>
+<ResponseField name="antiAbuseIncidents" type="object[]">Recent anti-abuse incidents.</ResponseField>
+<ResponseField name="dmcaServers" type="number">Count of servers under DMCA takedown.</ResponseField>
+<ResponseField name="suspendedUsers" type="number">Count of suspended user accounts.</ResponseField>
+
+---
+
+### List fraud alerts
+
+`GET /api/admin/fraud-alerts`
+
+Returns active fraud alerts generated by the automated detection system.
+
+```bash
+curl https://your-panel.example.com/api/admin/fraud-alerts \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Alert ID.</ResponseField>
+<ResponseField name="userId" type="number">Flagged user ID.</ResponseField>
+<ResponseField name="reason" type="string">Reason the account was flagged.</ResponseField>
+<ResponseField name="severity" type="string">Alert severity level.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 detection timestamp.</ResponseField>
+
+---
+
+### List anti-abuse incidents
+
+`GET /api/admin/antiabuse/incidents`
+
+Returns all anti-abuse incidents tracked by the panel.
+
+<ParamField query="status" type="string">Filter by status: `open`, `resolved`, or `dismissed`.</ParamField>
+
+```bash
+curl "https://your-panel.example.com/api/admin/antiabuse/incidents?status=open" \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Incident ID.</ResponseField>
+<ResponseField name="type" type="string">Incident category (e.g. `spam`, `ddos`, `tos_violation`).</ResponseField>
+<ResponseField name="serverId" type="string">Server UUID associated with the incident, if applicable.</ResponseField>
+<ResponseField name="userId" type="number">User associated with the incident.</ResponseField>
+<ResponseField name="status" type="string">Current incident status.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 timestamp.</ResponseField>
+
+---
+
+## Rollouts
+
+### List rollouts
+
+`GET /api/admin/rollouts`
+
+Returns all feature rollout configurations. Rollouts control gradual feature releases to subsets of users.
+
+```bash
+curl https://your-panel.example.com/api/admin/rollouts \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Rollout ID.</ResponseField>
+<ResponseField name="key" type="string">Feature flag key.</ResponseField>
+<ResponseField name="percentage" type="number">Percentage of users with the feature enabled (0–100).</ResponseField>
+<ResponseField name="enabled" type="boolean">Whether the rollout is active.</ResponseField>
+
+---
+
+## Settings
+
+### Get panel settings
+
+`GET /api/admin/settings`
+
+Returns all configurable panel settings as a key-value map.
+
+```bash
+curl https://your-panel.example.com/api/admin/settings \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="key" type="string">Setting key identifier.</ResponseField>
+<ResponseField name="value" type="string">Setting value.</ResponseField>
+
+---
+
+## Logs
+
+### Get API request logs
+
+`GET /api/admin/logs`
+
+Returns recent API request logs for debugging and audit purposes.
+
+<ParamField query="limit" type="number" default="100">Number of log entries to return.</ParamField>
+<ParamField query="userId" type="number">Filter logs to a specific user.</ParamField>
+
+```bash
+curl "https://your-panel.example.com/api/admin/logs?limit=50&userId=123" \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Log entry ID.</ResponseField>
+<ResponseField name="method" type="string">HTTP method.</ResponseField>
+<ResponseField name="path" type="string">Request path.</ResponseField>
+<ResponseField name="statusCode" type="number">Response status code.</ResponseField>
+<ResponseField name="durationMs" type="number">Request duration in milliseconds.</ResponseField>
+<ResponseField name="userId" type="number">Authenticated user ID, or `null` for unauthenticated requests.</ResponseField>
+<ResponseField name="ipAddress" type="string">Client IP address.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 timestamp.</ResponseField>

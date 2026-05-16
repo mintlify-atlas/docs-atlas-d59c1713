@@ -1,0 +1,197 @@
+---
+title: "AI chat, Studio, and model management API endpoints"
+description: "Send chat messages, access AI Studio completions, query available models, and use the OpenAI-compatible proxy with EcliPanel's managed AI infrastructure."
+---
+
+EcliPanel's AI feature routes requests through a managed model registry, handling fallover across multiple upstream endpoints automatically. Users and organisations are linked to specific models by an administrator. The OpenAI-compatible endpoints let you point standard OpenAI client libraries at EcliPanel without code changes.
+
+<Note>All AI endpoints return `503` with `{"error":"feature_disabled"}` when the `ai` feature flag is off. Enable the flag in **Admin → Settings** before using these routes.</Note>
+
+---
+
+## Chat
+
+### Send a chat message
+
+`POST /api/ai/chat`
+
+Sends a single message to the AI model assigned to the authenticated user or their organisation. Conversation history can be passed in to maintain context across turns.
+
+<ParamField body="message" type="string" required>The user's message text.</ParamField>
+<ParamField body="modelId" type="number">Explicit model ID to use. If omitted, the user's assigned model is used.</ParamField>
+<ParamField body="systemPrompt" type="string">System-level instruction prepended to the conversation.</ParamField>
+<ParamField body="history" type="object[]">
+  Previous conversation turns.
+  <Expandable title="turn properties">
+    <ParamField body="role" type="string">Either `user` or `assistant`.</ParamField>
+    <ParamField body="content" type="string">Message content.</ParamField>
+  </Expandable>
+</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/ai/chat \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "How do I increase my server RAM limit?",
+    "history": [
+      {"role": "user", "content": "What is EcliPanel?"},
+      {"role": "assistant", "content": "EcliPanel is a game server control panel."}
+    ]
+  }'
+```
+
+<ResponseField name="reply" type="string">The AI model's response text. If no model is configured, a user-friendly fallback message is returned instead of an error.</ResponseField>
+
+---
+
+### AI Studio
+
+`POST /api/ai/studio`
+
+Advanced AI invocation endpoint with extended configuration options for power users. Requires the `paid` or higher portal tier.
+
+<ParamField body="message" type="string" required>The user's message text.</ParamField>
+<ParamField body="modelId" type="number">Explicit model ID.</ParamField>
+<ParamField body="systemPrompt" type="string">System prompt override.</ParamField>
+<ParamField body="maxTokens" type="number">Maximum tokens in the response.</ParamField>
+<ParamField body="temperature" type="number">Sampling temperature (0.0–2.0).</ParamField>
+<ParamField body="history" type="object[]">Conversation history in the same format as `/api/ai/chat`.</ParamField>
+
+---
+
+## Model discovery
+
+### List all models
+
+`GET /api/ai/models`
+
+Returns all AI models registered in the panel. API keys and endpoint credentials are stripped from the response. Available to all authenticated users.
+
+```bash
+curl https://your-panel.example.com/api/ai/models \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Model ID.</ResponseField>
+<ResponseField name="name" type="string">Model display name.</ResponseField>
+<ResponseField name="config" type="object">
+  <Expandable title="properties">
+    <ResponseField name="modelId" type="string">Upstream provider model identifier (e.g. `gpt-4o`).</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="tags" type="string[]">Descriptive tags assigned by the administrator.</ResponseField>
+
+---
+
+### List your accessible models
+
+`GET /api/ai/my-models`
+
+Returns the models linked to the authenticated user or to any organisation they belong to, including per-link usage limits.
+
+```bash
+curl https://your-panel.example.com/api/ai/my-models \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="model" type="object">
+  <Expandable title="properties">
+    <ResponseField name="id" type="number">Model ID.</ResponseField>
+    <ResponseField name="name" type="string">Model name.</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="limits" type="object">
+  <Expandable title="properties">
+    <ResponseField name="tokens" type="number">Maximum tokens allowed per billing period, or `null` for unlimited.</ResponseField>
+    <ResponseField name="requests" type="number">Maximum requests allowed per billing period, or `null` for unlimited.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## OpenAI-compatible proxy
+
+These endpoints accept the standard OpenAI request format. Point OpenAI-compatible clients or libraries at your EcliPanel instance by changing the `baseURL`.
+
+<Tip>Set `baseURL` to `https://your-panel.example.com/api/ai/openai` in any OpenAI SDK to route requests through EcliPanel's model registry automatically.</Tip>
+
+### Chat completions
+
+`POST /api/ai/openai/v1/chat/completions`
+
+Proxies a standard OpenAI chat completions request to the model assigned to the authenticated user. The `model` field in the request body is replaced with the provider model ID from the panel configuration.
+
+<ParamField body="messages" type="object[]" required>
+  Conversation messages in OpenAI format.
+  <Expandable title="message properties">
+    <ParamField body="role" type="string">One of `system`, `user`, or `assistant`.</ParamField>
+    <ParamField body="content" type="string">Message content.</ParamField>
+  </Expandable>
+</ParamField>
+<ParamField body="modelId" type="number">Optional EcliPanel model ID override. If omitted, the user's assigned model is used.</ParamField>
+<ParamField body="temperature" type="number">Sampling temperature.</ParamField>
+<ParamField body="max_tokens" type="number">Maximum completion tokens.</ParamField>
+<ParamField body="stream" type="boolean">Whether to stream the response using server-sent events.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/ai/openai/v1/chat/completions \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "List three game server optimization tips."}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 512
+  }'
+```
+
+The response matches the standard OpenAI chat completions format:
+
+```json
+{
+  "id": "chatcmpl-abc123",
+  "object": "chat.completion",
+  "created": 1716000000,
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "1. Allocate RAM matching the game's recommended settings..."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 28,
+    "completion_tokens": 120,
+    "total_tokens": 148
+  }
+}
+```
+
+---
+
+### Text completions
+
+`POST /api/ai/openai/v1/completions`
+
+Proxies an OpenAI-style text completion request (non-chat format).
+
+<ParamField body="prompt" type="string" required>The prompt text to complete.</ParamField>
+<ParamField body="modelId" type="number">Optional EcliPanel model ID override.</ParamField>
+<ParamField body="max_tokens" type="number">Maximum completion tokens.</ParamField>
+<ParamField body="temperature" type="number">Sampling temperature.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/ai/openai/v1/completions \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "The best way to reduce server latency is",
+    "max_tokens": 100
+  }'
+```

@@ -1,0 +1,142 @@
+---
+title: "Organisations: multi-tenant workspaces and teams"
+description: "Create organisations to share servers, DNS zones, and nodes with your team. Manage member roles, portal tiers, and invitations from the dashboard."
+---
+
+Organisations are shared workspaces inside EcliPanel. They let you group users around a set of servers, DNS zones, and (for enterprise tiers) dedicated nodes — all under a single handle. Whether you are running a small gaming community or a hosting company with multiple teams, organisations give you the multi-tenancy primitives to separate resources and control who can access what.
+
+## Creating an organisation
+
+Any authenticated user can create an organisation from `/dashboard/organisations`. Each organisation has a globally unique **handle** (like a username for the org) and an owner who retains full control.
+
+```bash
+POST /api/organisations
+```
+
+```json
+{
+  "name": "Apex Gaming",
+  "handle": "apex-gaming"
+}
+```
+
+The response includes the organisation's `id`, `handle`, `ownerId`, `portalTier`, and `avatarUrl`.
+
+## Portal tiers
+
+Every organisation has a **portal tier** that determines the maximum number of servers its members can manage and which nodes they can schedule on:
+
+| Tier           | Display name        | Max servers |
+| -------------- | ------------------- | ----------- |
+| `free`         | Free Portal         | 2           |
+| `paid`         | Pro Portal          | 10          |
+| `educational`  | Educational Portal  | 3           |
+| `enterprise`   | Enterprise Portal   | Unlimited   |
+
+<Note>
+  Enterprise organisations (tier `enterprise`) can also be assigned dedicated nodes via `POST /api/nodes/:id/assign-org`. Only members of that organisation will be able to schedule servers on those nodes.
+</Note>
+
+## Inviting members
+
+Send an email invitation to add someone to your organisation:
+
+```bash
+POST /api/organisations/:id/invite
+```
+
+```json
+{ "email": "teammate@example.com" }
+```
+
+The invited user receives a mailbox notification and can accept or reject the invite:
+
+```bash
+POST /api/organisations/invites/:inviteId/accept
+POST /api/organisations/invites/:inviteId/reject
+```
+
+You can resend a pending invitation with `POST /api/organisations/:id/invite/:inviteId/resend` or revoke it with `DELETE /api/organisations/:id/invite/:inviteId`.
+
+Alternatively, admins can add a user directly without an invitation email:
+
+```bash
+POST /api/organisations/:id/add-user
+```
+
+## Member roles
+
+Each member of an organisation has an `orgRole` stored on their membership record. Role values are set and updated by the organisation owner or an admin:
+
+```bash
+POST /api/organisations/:id/users/:userId/role
+```
+
+Roles control which organisation-scoped actions a member may perform — for example, only members with `admin` or `owner` roles can manage tunnel devices on behalf of the organisation.
+
+## Shared servers and nodes
+
+All servers belonging to an organisation are accessible to authorised members:
+
+```bash
+GET /api/organisations/:id/servers
+GET /api/organisations/:id/nodes
+```
+
+Organisation servers appear alongside personal servers in the user's server list when the organisation is selected.
+
+## DNS zones per organisation
+
+Each organisation can own DNS zones. Members with the appropriate role can create and manage zones and records:
+
+```bash
+GET  /api/organisations/:id/dns/zones
+POST /api/organisations/:id/dns/zones
+GET  /api/organisations/:id/dns/zones/:zoneId
+GET  /api/organisations/:id/dns/zones/:zoneId/records
+POST /api/organisations/:id/dns/zones/:zoneId/records
+```
+
+DNS management is controlled by the `dns` feature flag. See the [DNS management](/features/dns-management) page for details.
+
+## Organisation avatars
+
+Upload or update the organisation's avatar image (PNG or JPEG, resized server-side with `sharp`):
+
+```bash
+POST /api/organisations/:id/avatar
+```
+
+The stored `avatarUrl` is returned on all organisation detail responses.
+
+## Leaving and removing members
+
+A member can leave an organisation voluntarily:
+
+```bash
+POST /api/organisations/:id/leave
+```
+
+The organisation owner or an admin can remove any member:
+
+```bash
+DELETE /api/organisations/:id/users/:userId
+```
+
+## Activity log
+
+All significant actions inside an organisation (member changes, server operations, DNS updates) are recorded and retrievable:
+
+```bash
+GET /api/organisations/:id/activity
+```
+
+## Selecting an active organisation
+
+The frontend lets users switch their active organisation context. The backend records this selection:
+
+```bash
+POST /api/organisations/:id/select
+```
+
+This affects which servers, DNS zones, and tunnel allocations are shown as the default view.

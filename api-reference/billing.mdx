@@ -1,0 +1,161 @@
+---
+title: "Billing, orders, and plans API endpoints"
+description: "Browse plans, create orders, download PDF invoices, and apply or cancel plans per user. All billing endpoints require the billing feature flag to be enabled."
+---
+
+EcliPanel's billing system links plans to users and organisations through orders. A plan defines resource limits (RAM, disk, CPU, server count, email quotas, and tunnel ports). An order records the transaction and generates a PDF invoice. Admin endpoints let staff apply or cancel a plan for any user without requiring a payment flow.
+
+<Note>All billing endpoints return `503` with `{"error":"feature_disabled"}` when the `billing` feature flag is off. Check the panel settings if you receive this response.</Note>
+
+---
+
+## Plans
+
+### List plans
+
+`GET /api/plans`
+
+Returns all plans that are not hidden from the billing interface, ordered by price ascending. No authentication required.
+
+```bash
+curl https://your-panel.example.com/api/plans
+```
+
+<ResponseField name="id" type="number">Plan ID.</ResponseField>
+<ResponseField name="name" type="string">Plan display name.</ResponseField>
+<ResponseField name="type" type="string">Plan category: `free`, `paid`, `edu`, or `enterprise`.</ResponseField>
+<ResponseField name="price" type="number">Monthly price in the panel's configured currency.</ResponseField>
+<ResponseField name="memory" type="number">Total RAM in megabytes.</ResponseField>
+<ResponseField name="disk" type="number">Total disk in megabytes.</ResponseField>
+<ResponseField name="cpu" type="number">Total CPU percentage across all servers.</ResponseField>
+<ResponseField name="serverLimit" type="number">Maximum number of servers.</ResponseField>
+<ResponseField name="databases" type="number">Maximum number of databases.</ResponseField>
+<ResponseField name="backups" type="number">Maximum number of backups.</ResponseField>
+<ResponseField name="portCount" type="number">Ports available per server.</ResponseField>
+<ResponseField name="tunnelPortCount" type="number">Tunnel ports available.</ResponseField>
+<ResponseField name="features" type="object">Additional plan-specific feature flags.</ResponseField>
+
+---
+
+### Get plan by ID
+
+`GET /api/plans/:id`
+
+<ParamField path="id" type="number" required>Plan ID.</ParamField>
+
+```bash
+curl https://your-panel.example.com/api/plans/3
+```
+
+---
+
+## Orders
+
+### List orders
+
+`GET /api/orders`
+
+Returns orders belonging to the authenticated user. If the user is an admin or owner of an organisation, orders belonging to that organisation are also included.
+
+```bash
+curl https://your-panel.example.com/api/orders \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Order ID.</ResponseField>
+<ResponseField name="status" type="string">Order status: `pending`, `active`, `cancelled`, or `expired`.</ResponseField>
+<ResponseField name="amount" type="number">Order total.</ResponseField>
+<ResponseField name="description" type="string">Human-readable description derived from order items.</ResponseField>
+<ResponseField name="planId" type="number">Associated plan ID, if applicable.</ResponseField>
+<ResponseField name="date" type="string">ISO 8601 creation timestamp.</ResponseField>
+
+---
+
+### Get order by ID
+
+`GET /api/orders/:id`
+
+<ParamField path="id" type="number" required>Order ID.</ParamField>
+
+The requesting user must be the order owner, or an admin/owner of the order's organisation.
+
+```bash
+curl https://your-panel.example.com/api/orders/101 \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Download invoice
+
+`GET /api/orders/:id/invoice`
+
+Returns a PDF invoice for the specified order. The response `Content-Type` is `application/pdf`.
+
+<ParamField path="id" type="number" required>Order ID.</ParamField>
+
+```bash
+curl https://your-panel.example.com/api/orders/101/invoice \
+  -H "Cookie: session=<token>" \
+  -o invoice-101.pdf
+```
+
+<Tip>The PDF is generated server-side using the `COMPANY_NAME`, `INVOICE_ISSUED_FROM_NAME`, `INVOICE_ISSUED_FROM_ADDRESS`, and `INVOICE_LOGO_PATH` environment variables. Configure these to match your branding.</Tip>
+
+---
+
+## Admin plan management
+
+The following endpoints let administrators apply or cancel plans for any user without going through the payment flow. They are intended for manual provisioning, comped accounts, and educational tier management.
+
+### Apply a plan to a user
+
+`POST /api/admin/users/:id/apply-plan`
+
+**Required permission:** admin
+
+<ParamField path="id" type="number" required>User ID.</ParamField>
+<ParamField body="planId" type="number" required>Plan ID to apply.</ParamField>
+<ParamField body="notes" type="string">Internal notes about why the plan was applied manually.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/admin/users/55/apply-plan \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"planId":4,"notes":"Educational grant approved"}'
+```
+
+<ResponseField name="success" type="boolean">Whether the plan was applied.</ResponseField>
+<ResponseField name="order" type="object">The created order record.</ResponseField>
+
+---
+
+### Cancel a user's plan
+
+`POST /api/admin/users/:id/cancel-plan`
+
+**Required permission:** admin
+
+<ParamField path="id" type="number" required>User ID.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/admin/users/55/cancel-plan \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="success" type="boolean">Whether the plan was cancelled.</ResponseField>
+
+---
+
+### Get user's current plan
+
+`GET /api/admin/users/:id/current-plan`
+
+**Required permission:** admin
+
+<ParamField path="id" type="number" required>User ID.</ParamField>
+
+```bash
+curl https://your-panel.example.com/api/admin/users/55/current-plan \
+  -H "Cookie: session=<token>"
+```

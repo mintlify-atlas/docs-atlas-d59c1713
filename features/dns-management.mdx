@@ -1,0 +1,84 @@
+---
+title: "Organisation DNS zone and record management"
+description: "Manage DNS zones and records per organisation. EcliPanel integrates with Cloudflare and PowerDNS, with access gated by the dns feature flag."
+---
+
+EcliPanel provides DNS zone and record management at the organisation level. Each organisation can own one or more DNS zones, and members with the appropriate organisation role can create, update, and delete records within those zones. All DNS operations are gated behind the `dns` feature flag — if your deployment does not use EcliPanel-managed DNS, you can disable the feature without affecting the rest of the panel.
+
+<Info>
+  DNS management requires the `dns` feature flag to be enabled in your panel settings. When disabled, DNS endpoints are unavailable and the DNS sections do not appear in the organisation settings.
+</Info>
+
+## DNS integrations
+
+The `organisationHandler` creates a `CloudflareService` instance to back DNS operations. EcliPanel supports:
+
+- **Cloudflare** — the default integration; configure your Cloudflare API token and zone handling in the backend environment
+- **PowerDNS** — available as an alternative provider via environment-level configuration
+
+The DNS service is abstracted so that both providers implement the same zone/record interface.
+
+## Zones
+
+A **zone** represents a domain name (e.g. `example.com`) managed through the panel on behalf of an organisation. Zones are scoped to a single organisation and inherit its membership permissions.
+
+```bash
+GET    /api/organisations/:id/dns/zones           # list zones for the organisation
+POST   /api/organisations/:id/dns/zones           # create a new zone
+GET    /api/organisations/:id/dns/zones/:zoneId   # zone details
+DELETE /api/organisations/:id/dns/zones/:zoneId   # delete a zone
+```
+
+<Warning>
+  Deleting a zone removes it from EcliPanel and, depending on your DNS provider configuration, may remove it from Cloudflare or PowerDNS as well. Verify provider behaviour before deleting zones in production.
+</Warning>
+
+## Records
+
+Records are the individual DNS entries (A, AAAA, CNAME, MX, TXT, etc.) within a zone. You manage them under the zone's records sub-resource:
+
+```bash
+GET    /api/organisations/:id/dns/zones/:zoneId/records              # list records
+POST   /api/organisations/:id/dns/zones/:zoneId/records              # create a record
+GET    /api/organisations/:id/dns/zones/:zoneId/records/:recordId    # record detail
+PUT    /api/organisations/:id/dns/zones/:zoneId/records/:recordId    # update a record
+DELETE /api/organisations/:id/dns/zones/:zoneId/records/:recordId    # delete a record
+```
+
+Example: creating an A record
+
+```bash
+POST /api/organisations/42/dns/zones/zone-uuid/records
+```
+
+```json
+{
+  "type": "A",
+  "name": "minecraft",
+  "content": "203.0.113.10",
+  "ttl": 300,
+  "proxied": false
+}
+```
+
+## Who can manage DNS
+
+DNS zone and record operations are authorised at the **organisation member** level. A user must be a member of the organisation that owns the zone and have a role with sufficient privileges (typically `admin` or `owner`) to create or modify zones and records.
+
+Read-only access (listing zones and records) may be available to broader member roles depending on your panel's role/permission configuration.
+
+<Note>
+  Organisation membership and roles are managed separately from server sub-user access. See [Organisations](/features/organisations) for how to invite members and assign roles.
+</Note>
+
+## Infrastructure-level DNS (admin)
+
+Admins also have access to infrastructure-level DNS management endpoints that operate outside the scope of any single organisation:
+
+```bash
+GET  /api/infrastructure/dns
+GET  /api/infrastructure/dns/zones
+GET  /api/infrastructure/dns/zones/:id/records
+```
+
+These endpoints are intended for platform-wide DNS configuration, such as managing the panel's own domain records.

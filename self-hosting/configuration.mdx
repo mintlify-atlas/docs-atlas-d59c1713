@@ -1,0 +1,204 @@
+---
+title: "EcliPanel environment variable reference"
+description: "Complete reference for every environment variable in EcliPanel's backend and frontend .env files, grouped by subsystem with defaults and descriptions."
+---
+
+EcliPanel is configured entirely through environment files. The backend reads its variables from `backend/.env` and the frontend reads from `frontend/.env`. Both directories ship with a corresponding `.env.example` file that lists every available option with blank or safe default values. Copy the example file, fill in your values, and restart the relevant process for changes to take effect.
+
+<Warning>
+  `JWT_SECRET`, `NODE_ENCRYPTION_KEY`, and `NODE_PQ_ENCRYPTION_SEED` must be generated with a cryptographically secure source of randomness. Use `bun run gen:jwt-secret` for the first two and the one-liner below for the seed. **Never commit these values to version control.**
+
+  ```bash
+  bun -e "console.log((await import('crypto')).randomBytes(64).toString('base64'))"
+  ```
+</Warning>
+
+---
+
+## Backend variables
+
+The following variables are read from `backend/.env`.
+
+### Database
+
+EcliPanel connects to MariaDB by default. All `DB_*` fields are required.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DB_TYPE` | `mariadb` | Database driver. `mariadb` is the only supported and tested value. |
+| `DB_HOST` | _(required)_ | Hostname or IP of the database server. |
+| `DB_PORT` | _(required)_ | Port the database listens on. MariaDB default is `3306`. |
+| `DB_USER` | _(required)_ | Database username. |
+| `DB_PASS` | _(required)_ | Database password. |
+| `DB_NAME` | _(required)_ | Name of the database schema to use. |
+| `DB_LOG_QUERIES` | `true` | Log every SQL query to stdout. Set to `false` in production to reduce noise. |
+| `DB_MAX_QUERY_MS` | `200` | Queries slower than this threshold (in ms) are logged as slow queries and visible in the admin panel. |
+
+### Server
+
+These variables control how the backend process binds and how it constructs URLs for cross-origin communication.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | _(required)_ | Port the Elysia HTTP server listens on. |
+| `FRONTEND_URL` | _(required)_ | Full URL of the frontend, e.g. `https://panel.example.com`. Used for CORS and redirect generation. |
+| `PANEL_URL` | _(required)_ | Canonical public URL of the panel, used in email links and self-referencing API responses. |
+| `ORIGIN` | _(required)_ | Origin header value for passkey / WebAuthn validation, e.g. `https://panel.example.com`. |
+| `RP_ID` | _(required)_ | Relying-party identifier for WebAuthn, typically the bare domain such as `example.com`. |
+| `EXIT_ON_UNCAUGHT` | `0` | Set to `1` to have the process exit on unhandled promise rejections instead of recovering. |
+| `ELYSIA_HOURLY_RESTART` | `true` | Automatically restart the Elysia server process once per hour. |
+| `EXPORT_MAX_FILE_BYTES` | `0` | Maximum file size allowed in server exports. `0` means unlimited. |
+
+### Authentication
+
+| Variable | Default | Description |
+|---|---|---|
+| `JWT_SECRET` | _(required)_ | Secret key used to sign and verify JSON Web Tokens. Generate with `bun run gen:jwt-secret`. |
+| `NODE_ENCRYPTION_KEY` | _(required)_ | AES key used to encrypt Wing node credentials stored in the database. Generate with `bun run gen:jwt-secret`. |
+| `NODE_PQ_ENCRYPTION_SEED` | _(required)_ | 64-byte base64 seed used for post-quantum key derivation on node secrets. Generate with `openssl rand -base64 64`. |
+
+### Wings
+
+| Variable | Default | Description |
+|---|---|---|
+| `WINGS_ALLOW_INVALID_CERT` | `false` | Set to `true` to allow the backend to communicate with Wings nodes that present self-signed TLS certificates. Not recommended for production. |
+
+### Email (SMTP)
+
+SMTP is used for transactional email such as password resets, email verification, and notifications.
+
+| Variable | Default | Description |
+|---|---|---|
+| `SMTP_HOST` | `127.0.0.1` | SMTP server hostname. |
+| `SMTP_PORT` | `465` | SMTP server port. |
+| `SMTP_SECURE` | `true` | Use TLS for the SMTP connection. |
+| `SMTP_TLS_ALLOW_INVALID` | `false` | Skip TLS certificate verification for the SMTP connection. |
+| `SMTP_USER` | _(required)_ | SMTP authentication username. |
+| `SMTP_PASS` | _(required)_ | SMTP authentication password. |
+| `MAIL_FROM` | _(required)_ | Sender address shown in the `From` header of outgoing email. |
+
+### Mailcow integration
+
+EcliPanel can provision and manage mailboxes through a Mailcow instance. All `MAILCOW_*` and `MAILBOX_*` variables are optional; leave them blank if you are not using the mailbox feature.
+
+| Variable | Default | Description |
+|---|---|---|
+| `MAILCOW_API_URL` | _(optional)_ | Base URL of the Mailcow API, e.g. `https://mail.example.com/api/v1`. |
+| `MAILCOW_API_KEY` | _(optional)_ | Mailcow admin API key. |
+| `MAILCOW_API_SECRET` | _(optional)_ | Mailcow API secret (if applicable). |
+| `MAILCOW_TIMEOUT_MS` | `30000` | Timeout in milliseconds for Mailcow API requests. |
+| `MAILCOW_RETRIES` | `2` | Number of times to retry a failed Mailcow request. |
+| `MAILBOX_DOMAIN` | _(optional)_ | Primary mailbox domain managed through Mailcow. |
+| `MAIL_DOMAIN` | _(optional)_ | Additional mail domain identifier. |
+| `MAILBOX_INBOUND_SECRET` | _(optional)_ | Shared secret for authenticating inbound webhook calls from Mailcow. |
+| `MAILBOX_SMTP_HOST` | `mail.${MAILBOX_DOMAIN}` | SMTP host for sending mail from managed mailboxes. |
+| `MAILBOX_SMTP_PORT` | `587` | SMTP port for managed mailbox sending. |
+| `MAILBOX_SMTP_SECURE` | `false` | Use TLS for managed mailbox SMTP. |
+| `MAILBOX_IMAP_HOST` | `mail.${MAILBOX_DOMAIN}` | IMAP host for reading mail in managed mailboxes. |
+| `MAILBOX_IMAP_PORT` | `993` | IMAP port for managed mailboxes. |
+| `MAILBOX_IMAP_SECURE` | `true` | Use TLS for managed mailbox IMAP. |
+| `IMAP_FETCH_CRON` | `*/1 * * * *` | Cron schedule for polling IMAP inboxes. |
+| `DOVECOT_MASTER_USER` | _(optional)_ | Dovecot master user for IMAP impersonation. |
+| `DOVECOT_MASTER_PASS` | _(optional)_ | Dovecot master password. |
+| `DOVECOT_MASTER_DOMAIN` | `mailcow.local` | Dovecot master domain. |
+
+### OAuth
+
+EcliPanel supports GitHub and Hack Club OAuth for student verification.
+
+| Variable | Default | Description |
+|---|---|---|
+| `GITHUB_CLIENT_ID` | _(optional)_ | GitHub OAuth application client ID. |
+| `GITHUB_CLIENT_SECRET` | _(optional)_ | GitHub OAuth application client secret. |
+| `HACKCLUB_CLIENT_ID` | _(optional)_ | Hack Club OAuth application client ID. |
+| `HACKCLUB_CLIENT_SECRET` | _(optional)_ | Hack Club OAuth application client secret. |
+| `HACKCLUB_REDIRECT_URI` | _(optional)_ | Redirect URI registered with the Hack Club OAuth application. |
+| `EU_ID_DISABLED` | `true` | Set to `false` to enable EU ID verification flows. |
+
+### Cloudflare DNS
+
+These variables configure the Cloudflare DNS integration used for automatic subdomain provisioning.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | _(optional)_ | Cloudflare API token with DNS edit permissions for the target zone. |
+| `CLOUDFLARE_BASE_ZONE` | _(optional)_ | Base domain whose zone is managed via the Cloudflare API, e.g. `example.com`. |
+| `CLOUDFLARE_ACCOUNT_ID` | _(optional)_ | Cloudflare account ID. |
+| `CLOUDFLARE_CREATE_SUBZONE` | `0` | Set to `1` to create sub-zones automatically when provisioning subdomains. |
+
+### PowerDNS
+
+EcliPanel supports PowerDNS as an alternative DNS backend for organisations.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PDNS_BASE_URL` | `http://127.0.0.1:8081/api/v1/servers/localhost` | Base URL of the PowerDNS HTTP API. |
+| `PDNS_API_KEY` | _(required if using PDNS)_ | API key configured in `pdns.conf` via the `api-key` directive. |
+
+### Redis
+
+| Variable | Default | Description |
+|---|---|---|
+| `REDIS_URL` | `redis://localhost:6379` | Connection URL for the Redis instance used for session caching and queues. |
+
+### Captcha
+
+Audio and visual captcha require `ffmpeg` and `espeak` to be installed on the host.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CAPTCHA_SECRET` | _(optional)_ | Secret key for standard visual captcha. Generate with `openssl rand -hex 32`. |
+| `CAPTCHA_INVISIBLE_SECRET` | _(optional)_ | Secret key for invisible (background) captcha challenges. Generate with `openssl rand -hex 32`. |
+| `CAPTCHA_TTS_VOICE` | `en` | Language/voice passed to `espeak` for audio captcha generation. |
+| `CAPTCHA_TTS_SPEED` | `150` | Words-per-minute speed for the `espeak` TTS engine. |
+
+<Note>
+  Leave `CAPTCHA_SECRET` and `CAPTCHA_INVISIBLE_SECRET` blank to disable captcha entirely. You can enable it after deployment without any other changes.
+</Note>
+
+### Anti-abuse
+
+| Variable | Default | Description |
+|---|---|---|
+| `ANTIABUSE_AI_ENABLED` | `true` | Enable AI-assisted abuse detection. The Rust anti-abuse daemon must also be running on each node. |
+| `ABUSE_REPORT_EMAIL` | _(required if enabled)_ | Email address where abuse incident reports are sent. |
+
+### Billing and invoicing
+
+These variables populate the issuer information on generated PDF invoices.
+
+| Variable | Default | Description |
+|---|---|---|
+| `COMPANY_NAME` | `EclipseSystems` | Legal company name shown on invoices. |
+| `COMPANY_ADDRESS` | _(example value)_ | Full company mailing address. |
+| `INVOICE_ISSUED_FROM_NAME` | _(example value)_ | Full legal entity name as it appears in the invoice "issued from" field. |
+| `INVOICE_ISSUED_FROM_ADDRESS` | _(example value)_ | Street address line for the invoice issuer. |
+| `INVOICE_ISSUED_FROM_CITY` | _(example value)_ | City, state, ZIP, and country for the invoice issuer. |
+| `INVOICE_ISSUED_FROM_EMAIL` | _(example value)_ | Contact email shown on invoices. |
+| `INVOICE_LOGO_PATH` | `./frontend/public/assets/icons/logo.png` | Path to the logo image embedded in generated PDF invoices. |
+
+### Tunnel
+
+The EcliTunnel system allows users to expose local services through a public relay. The server agent reads bind instructions from the backend and listens on allocated ports.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TUNNEL_PUBLIC_HOST` | _(optional)_ | Hostname advertised to clients as the public tunnel endpoint, e.g. `tunnel.example.com`. If not set, the backend falls back to its own public address. The tunnel server must open inbound TCP on ports `20000`–`29999`. |
+
+---
+
+## Frontend variables
+
+The following variables are read from `frontend/.env`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `BACKEND_URL` | `http://localhost:3001` | Internal URL the Next.js server-side proxy uses to forward `/api/*` requests to the backend. Not exposed to the browser. |
+| `NEXT_PUBLIC_API_BASE` | _(empty, falls back to `BACKEND_URL`)_ | Public-facing API base URL passed to browser-side code. Set this to the backend's public HTTPS URL. |
+| `NEXT_PUBLIC_WINGS_BASE` | `http://localhost:8080` | Public-facing Wings base URL used for WebSocket proxying via the `/wings/*` rewrite. |
+| `GITHUB_STUDENT_ENABLED` | `false` | Show the GitHub Student verification option on the identity page. |
+| `NEXT_PUBLIC_HACKCLUB_STUDENT_ENABLED` | `true` | Show the Hack Club Student verification option on the identity page. |
+
+<Info>
+  The Next.js `next.config.mjs` reads `BACKEND_URL` and `NEXT_PUBLIC_WINGS_BASE` at build time to configure its server-side rewrites. If you change these values after building you must rebuild the frontend.
+</Info>

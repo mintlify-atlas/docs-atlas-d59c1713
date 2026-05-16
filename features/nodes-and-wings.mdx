@@ -1,0 +1,123 @@
+---
+title: "Wings nodes: registration and orchestration"
+description: "Connect remote Wings nodes to EcliPanel, understand node types, monitor health via heartbeats, and manage tokens for distributed server infrastructure."
+---
+
+A **node** is a remote host running the Wings agent that EcliPanel communicates with to provision and manage game servers. Nodes are the compute layer of EcliPanel — the backend delegates all server lifecycle operations (power, console, file access, backups) to Wings over an authenticated HTTP/WebSocket connection. You can run a single node for a small deployment or connect dozens across multiple regions.
+
+<Warning>
+  EcliPanel requires **wings-rs** — the Rust-based Wings implementation. It is **not compatible** with the original Go-based Wings (`pterodactyl/wings`). Make sure your node hosts are running [wings-rs](https://github.com/calagopus/wings) before registering them in EcliPanel.
+</Warning>
+
+## What a node contains
+
+Each node record stores the information EcliPanel needs to reach Wings and to decide which users may schedule servers on it:
+
+- **URL** — the base HTTP/HTTPS address of the Wings agent
+- **Token** — a secret used to authenticate backend-to-Wings requests
+- **Node type** — controls which portal tier can use the node
+- **FQDN / SFTP ports** — public hostname and SFTP proxy port exposed to users
+- **IPv6 subnet** — optional `/64` (or narrower) block for IPv6 server allocations
+- **Port range** — `portRangeStart` / `portRangeEnd` define available allocation ports
+
+## Node types
+
+When you register a node you assign it one of four types that determines which users can schedule servers on it:
+
+| Type            | Who can use it                                   |
+| --------------- | ------------------------------------------------- |
+| `free`          | Users on the Free portal tier                    |
+| `paid`          | Users on the Pro (paid) portal tier              |
+| `free_and_paid` | Both Free and Pro users                          |
+| `enterprise`    | Enterprise organisation members only             |
+
+<Note>
+  Users on the Educational tier are treated the same as `paid` users when resolving available nodes. The `educational` portal maps to `paid` node access at runtime.
+</Note>
+
+## Registering a node
+
+Only users with the `nodes:create` permission (typically admins) can register nodes. The minimum required fields are `name`, `url`, and `token`.
+
+```bash
+POST /api/nodes
+```
+
+```json
+{
+  "name": "EU-1",
+  "url": "https://node1.example.com:8080",
+  "token": "<wings-token>",
+  "nodeType": "free_and_paid",
+  "fqdn": "node1.example.com",
+  "sftpPort": 2022,
+  "portRangeStart": 25565,
+  "portRangeEnd": 25600
+}
+```
+
+EcliPanel calls `nodeService.registerNode` which contacts Wings, verifies the connection, and stores the node record. You can also supply an optional `backendWingsUrl` if your Wings agent is reachable at a different address from the backend than from the public internet.
+
+## Generating a node token
+
+If you need to rotate credentials or generate a fresh Wings token from the panel:
+
+```bash
+POST /api/nodes/generate-token
+GET  /api/nodes/:id/token
+GET  /api/nodes/:id/credentials
+```
+
+Store the token securely. It grants full control over the Wings agent.
+
+## Assigning a node to an organisation
+
+Enterprise nodes can be scoped to a specific organisation so that only members of that organisation can schedule servers on them:
+
+```bash
+POST /api/nodes/:id/assign-org
+```
+
+## Health monitoring and heartbeats
+
+Wings agents send periodic heartbeat signals to the backend. EcliPanel tracks these to detect unhealthy nodes and exclude them from server scheduling:
+
+```bash
+GET /api/nodes/heartbeats        # heartbeats for all nodes
+GET /api/nodes/:id/heartbeats    # heartbeats for a specific node
+```
+
+The `getUnhealthyNodeIds()` utility is called before any server is scheduled to filter out nodes that have missed recent heartbeats. The admin SOC dashboard surfaces node health visually.
+
+## Mass allocation changes and reboots
+
+Admins can update all port allocations on a node in bulk or trigger a reboot of every server on a node:
+
+```bash
+POST /api/nodes/:id/mass-allocation-change
+POST /api/nodes/:id/reboot-all-servers
+GET  /api/nodes/:id/reboot-status/:operationId
+```
+
+The reboot operation is asynchronous. Poll the `reboot-status` endpoint with the returned `operationId` to check progress.
+
+## Available nodes for a user
+
+To list the nodes a specific user can schedule servers on (respecting node type and portal tier):
+
+```bash
+GET /api/nodes/available
+```
+
+Results are cached in Redis for 10 seconds per user/portal combination to reduce database load during server creation.
+
+## Infrastructure-level nodes (enterprise)
+
+Enterprise deployments also have access to the infrastructure node management API, which provides additional configuration options:
+
+```bash
+GET  /api/infrastructure/nodes
+GET  /api/infrastructure/nodes/:id
+GET  /api/infrastructure/nodes/:id/config
+GET  /api/infrastructure/nodes/:id/allocations
+```

@@ -1,0 +1,138 @@
+---
+title: "EcliPanel REST API: base URL and conventions"
+description: "Complete reference for the EcliPanel REST API — manage servers, organisations, billing, DNS, AI endpoints, and more from any HTTP client."
+---
+
+The EcliPanel backend exposes a REST API that the frontend, Wings nodes, and external integrations all use. Every resource in the panel — servers, organisations, nodes, tickets, billing, AI, tunnels — has a corresponding set of JSON endpoints. You can call the API directly with any HTTP client, automate workflows with API keys, or explore it interactively via the built-in OpenAPI playground.
+
+## Base URL
+
+The backend listens on the port set in your `backend/.env` file. The Next.js frontend automatically proxies all `/api/*` requests to the backend, so from the browser you always hit the same origin. When calling the API directly — from a script or external service — use the backend's address:
+
+```
+https://<your-backend-host>/api
+```
+
+For the production EcliPanel instance hosted by EclipseSystems, the backend is available at:
+
+```
+https://backend.ecli.app
+```
+
+## OpenAPI playground
+
+The backend serves an interactive OpenAPI playground at the `/openapi` route. You can use it to browse every available endpoint, inspect request schemas, and send test requests without writing any code.
+
+```
+https://backend.ecli.app/openapi
+```
+
+If you are running EcliPanel yourself, replace the host with your own backend address. The playground is always available on a running backend.
+
+## Response format
+
+All responses are JSON. Successful operations return the resource or a confirmation object. Errors always return a JSON body with an `error` key:
+
+```json
+{ "error": "message describing what went wrong" }
+```
+
+### HTTP status codes
+
+| Code | Meaning |
+|------|---------|
+| `200` | Success |
+| `201` | Resource created |
+| `400` | Bad request — missing or invalid parameters |
+| `401` | Unauthorized — authentication required or token invalid |
+| `403` | Forbidden — authenticated but not permitted |
+| `429` | Too many requests — rate limit exceeded |
+| `503` | Feature disabled — endpoint is turned off by the panel operator |
+
+## Feature-gated endpoints
+
+Some endpoints are controlled by feature flags set in the backend configuration. If a feature is disabled, any request to an endpoint in that group returns `503`:
+
+```json
+{ "error": "Feature 'billing' is disabled" }
+```
+
+The following feature flags gate their respective endpoint groups:
+
+| Feature flag | Affected endpoints |
+|---|---|
+| `ai` | `/api/ai/*` |
+| `ticketing` | `/api/tickets/*`, `/api/admin/tickets/*` |
+| `applications` | `/api/applications/*`, `/api/public/applications/*` |
+| `billing` | `/api/orders/*`, `/api/plans/*`, `/api/billing/*` |
+| `oauth` | `/api/oauth/*` |
+| `registration` | `/api/users/register` |
+| `dns` | Organisation DNS zone endpoints |
+| `tunnels` | `/api/tunnel/*` |
+
+## Rate limiting
+
+The API enforces per-IP and per-account rate limits on sensitive endpoints. When a limit is exceeded, the response is `429` with a `Retry-After` header indicating how many seconds to wait:
+
+```json
+{ "error": "rate_limited", "retryAfter": 30 }
+```
+
+Login, 2FA verification, and API key creation are among the endpoints with rate limits applied.
+
+## WebSocket support
+
+The server console is available over WebSocket for real-time output streaming. Connect using the token obtained from the REST API:
+
+```
+wss://<your-backend-host>/api/servers/:id/websocket
+```
+
+Send commands to the server and receive console output in real time. Authentication uses the same session token as REST requests.
+
+## Example request
+
+```bash
+curl -X GET https://backend.ecli.app/api/auth/session \
+  -H "Authorization: Bearer <your-token>"
+```
+
+```json
+{
+  "id": 42,
+  "email": "user@example.com",
+  "firstName": "Alex",
+  "role": "user",
+  "twoFactorEnabled": false,
+  "emailVerified": true
+}
+```
+
+## Endpoint groups
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api-reference/authentication">
+    Log in, manage sessions, set up 2FA, and create API keys
+  </Card>
+  <Card title="Servers" icon="server" href="/api-reference/servers">
+    Create, power, transfer, reinstall, and monitor game servers
+  </Card>
+  <Card title="Organisations" icon="building" href="/api-reference/organisations">
+    Manage multi-tenant workspaces, members, roles, and DNS zones
+  </Card>
+  <Card title="Nodes" icon="network-wired" href="/api-reference/nodes">
+    Register nodes, view heartbeats, and manage allocations
+  </Card>
+  <Card title="Billing & orders" icon="credit-card" href="/api-reference/billing">
+    Create orders, manage plans, and retrieve invoices
+  </Card>
+  <Card title="AI endpoints" icon="sparkles" href="/api-reference/ai">
+    Chat completions, AI Studio, and model management
+  </Card>
+  <Card title="Tickets" icon="ticket" href="/api-reference/tickets">
+    Create and manage support tickets and replies
+  </Card>
+  <Card title="Admin" icon="shield" href="/api-reference/admin">
+    Panel-wide administration, user management, and audit logs
+  </Card>
+</CardGroup>

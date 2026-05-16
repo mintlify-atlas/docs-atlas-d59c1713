@@ -1,0 +1,194 @@
+---
+title: "Authenticate requests to the EcliPanel API"
+description: "Log in via email or OAuth, complete two-factor authentication, and create API keys to authenticate every call to the EcliPanel REST API."
+---
+
+EcliPanel protects every non-public endpoint with session-based or API key authentication. When you log in through the REST API, the backend issues a JWT that you pass as a `Bearer` token on subsequent requests. For automation and integrations, you can create a named API key from the dashboard and use it instead of a session token. This page covers both methods and explains the two-factor authentication (2FA) flow that may be required before a session token is issued.
+
+## Session-based authentication
+
+### Log in
+
+Send your credentials to `POST /api/auth/login`. On success, the backend sets an HTTP-only session cookie and also returns the raw token in the response body so you can store it in your client.
+
+```bash
+curl -X POST https://backend.ecli.app/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "your-password"}'
+```
+
+**Success response** (no 2FA):
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "csrfToken": "abc123...",
+  "user": {
+    "id": 42,
+    "email": "user@example.com",
+    "firstName": "Alex",
+    "role": "user",
+    "twoFactorEnabled": false,
+    "emailVerified": true
+  }
+}
+```
+
+Store the `token` value and include it in the `Authorization` header on all subsequent requests:
+
+```bash
+curl https://backend.ecli.app/api/auth/session \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Log out
+
+```bash
+curl -X POST https://backend.ecli.app/api/auth/logout \
+  -H "Authorization: Bearer <your-token>"
+```
+
+## Two-factor authentication
+
+If the account has 2FA enabled, the login response does not return a session token. Instead it returns a short-lived `tempToken` and signals that a second step is required:
+
+```json
+{
+  "twoFactorRequired": true,
+  "tempToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+The `tempToken` expires in five minutes. Complete the 2FA challenge before it expires.
+
+### TOTP (authenticator app)
+
+If you use an authenticator app, pass the current six-digit code from your app along with the `tempToken`:
+
+```bash
+curl -X POST https://backend.ecli.app/api/auth/2fa/verify-login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tempToken": "<tempToken from login>",
+    "token": "123456"
+  }'
+```
+
+### Email code
+
+If you prefer to receive a code by email, first request one:
+
+```bash
+curl -X POST https://backend.ecli.app/api/auth/2fa/send-email \
+  -H "Content-Type: application/json" \
+  -d '{"tempToken": "<tempToken from login>"}'
+```
+
+Then verify with the code that arrives in your inbox:
+
+```bash
+curl -X POST https://backend.ecli.app/api/auth/2fa/verify-login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tempToken": "<tempToken from login>",
+    "emailCode": "456789"
+  }'
+```
+
+### Backup code
+
+If you cannot access your authenticator or email, use a one-time backup code:
+
+```bash
+curl -X POST https://backend.ecli.app/api/auth/2fa/verify-login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tempToken": "<tempToken from login>",
+    "backupCode": "your-backup-code"
+  }'
+```
+
+A successful 2FA verification returns the full session token identical to a standard login response.
+
+## API key authentication
+
+API keys are the recommended method for automation, scripts, and integrations. They do not expire unless you set an expiry date, and they carry a defined set of permissions.
+
+<Steps>
+  <Step title="Create an API key from the dashboard">
+    Log in to the EcliPanel dashboard and go to **Settings**. Under the API Keys section, click **Create key**, give it a name, choose the key type (`client` or `admin`), and optionally set an expiry date and a list of permission scopes. Copy the key value shown — it is only displayed once.
+
+    <Warning>
+      Admin keys can only be created by system administrators with the `*` permission. Use `client` keys for most integrations.
+    </Warning>
+  </Step>
+  <Step title="Pass the key on every request">
+    Include your API key in the `Authorization` header using the `ApiKey` scheme:
+
+    ```bash
+    curl https://backend.ecli.app/api/servers \
+      -H "Authorization: ApiKey <your-api-key>"
+    ```
+
+    Alternatively, you can use the `X-Api-Key` header:
+
+    ```bash
+    curl https://backend.ecli.app/api/servers \
+      -H "X-Api-Key: <your-api-key>"
+    ```
+
+    Both formats are accepted by the backend.
+  </Step>
+  <Step title="List and manage your keys">
+    Retrieve all keys belonging to your account:
+
+    ```bash
+    curl https://backend.ecli.app/api/apikeys/my \
+      -H "Authorization: ApiKey <your-api-key>"
+    ```
+
+    Delete a key by its ID when it is no longer needed:
+
+    ```bash
+    curl -X DELETE https://backend.ecli.app/api/apikeys/<id> \
+      -H "Authorization: ApiKey <your-api-key>"
+    ```
+  </Step>
+</Steps>
+
+### Key types and permissions
+
+| Type | Who can create | Access level |
+|---|---|---|
+| `client` | Any authenticated user | Scoped to the permissions array you specify at creation |
+| `admin` | System administrators with `*` permission only | Panel-wide administrative access |
+
+The `permissions` field you provide at creation time is an array of permission strings (for example `["servers:read", "nodes:read"]`). If you leave it empty, the key inherits no permissions beyond what the key type allows.
+
+<Note>
+  API keys created for another user's account require the `users:write` permission on your own account.
+</Note>
+
+## 401 vs 403 errors
+
+Understanding the difference between these two errors helps you diagnose authentication issues quickly.
+
+| Status | Meaning | Common causes |
+|---|---|---|
+| `401 Unauthorized` | The request has no valid credentials | Missing or expired token, invalid API key, malformed `Authorization` header |
+| `403 Forbidden` | Valid credentials, but insufficient permissions | Your key or session does not have the required permission for the endpoint, or you are trying to access another user's resources without `users:write` |
+
+```json
+{ "error": "Missing token" }
+{ "error": "Invalid API key" }
+{ "error": "Not allowed to create keys for other users" }
+```
+
+## Passkey authentication
+
+EcliPanel supports passkey (WebAuthn) login as an alternative to passwords. The flow starts with a challenge, which you sign with your device, and then submit for verification:
+
+1. `GET /api/auth/passkey/authenticate-challenge` — retrieve the challenge
+2. `POST /api/auth/passkey/authenticate` — submit the signed response
+
+Passkey registration follows the same two-step pattern via `/api/auth/passkey/register-challenge` and `/api/auth/passkey/register`.

@@ -1,0 +1,145 @@
+---
+title: "EcliTunnel: TCP tunnels for game servers and apps"
+description: "Expose local services via panel-managed TCP allocations. Rust agents bridge traffic directly — no tunnel data flows through the EcliPanel backend."
+---
+
+EcliTunnel is a TCP tunnelling system built into EcliPanel. It lets users expose a locally running service (a game server, a development API, any TCP service) to the internet through a public port allocation managed by the panel. The system is made up of two Rust agents — a **client agent** that runs on the user's machine and a **server agent** that runs on a publicly reachable host — along with a control plane hosted in the EcliPanel backend.
+
+<Info>
+  Tunnels are controlled by the `tunnels` feature flag. If the flag is disabled, the Tunnels navigation item is hidden and all `/api/tunnel/*` endpoints are inaccessible.
+</Info>
+
+## How tunnels work
+
+The control plane (backend WebSocket) coordinates enrollment, approval, and allocation, but **tunnel data travels directly between the server agent and the client agent** — it does not flow through the backend:
+
+```
+internet → server agent → client agent → local service
+```
+
+When a public connection arrives at the server agent, it notifies the backend, which issues a one-time direct token. The client then connects to the server allocation port, presents the token, and the server agent bridges the two TCP connections directly.
+
+The server agent binds ports from the allocation range (default **20000–29999**) dynamically as the backend assigns them.
+
+## Device enrollment
+
+Both client and server agents must be enrolled and approved before they can connect. The enrollment flow is:
+
+<Steps>
+  <Step title="Start enrollment">
+    The client agent calls `POST /api/tunnel/device/start` to begin enrollment and receives a user code.
+  </Step>
+  <Step title="Approve in the panel">
+    A panel admin or the device owner approves the device via `POST /api/tunnel/device/approve` in the dashboard at `/dashboard/tunnels`.
+  </Step>
+  <Step title="Connect">
+    The approved agent polls `GET /api/tunnel/device/poll` until it receives a bearer token, then connects to the `GET /api/tunnel/ws` WebSocket control channel.
+  </Step>
+</Steps>
+
+## Running the client agent
+
+Build and run the client agent from the `tunnel/client` directory:
+
+<Steps>
+  <Step title="Enroll the client device">
+
+```bash
+cd tunnel/client
+cargo run --release -- enroll --backend https://your-backend.example
+```
+
+  </Step>
+  <Step title="Run with a new allocation">
+    After approval, start the agent and request a public tunnel allocation in the same command:
+
+```bash
+cargo run --release -- run \
+  --backend https://your-backend.example \
+  --local-host 127.0.0.1 \
+  --local-port 8080 \
+  --protocol tcp
+```
+
+  </Step>
+  <Step title="Run against an existing allocation">
+    If you created an allocation separately from the dashboard, run without port flags:
+
+```bash
+cargo run --release -- run --backend https://your-backend.example
+```
+
+  </Step>
+</Steps>
+
+To enable verbose logging, add `--verbose` before the subcommand:
+
+```bash
+cargo run --release -- --verbose run --backend https://your-backend.example
+```
+
+## Running the server agent
+
+The server agent must be enrolled with an admin JWT and then run as a long-lived process:
+
+<Steps>
+  <Step title="Enroll the server device">
+
+```bash
+cd tunnel/server
+cargo run --release -- enroll \
+  --backend https://your-backend.example \
+  --jwt-token <admin_jwt>
+```
+
+  </Step>
+  <Step title="Run the server agent">
+
+```bash
+cargo run --release -- --backend https://your-backend.example run --token <access_token>
+```
+
+  </Step>
+</Steps>
+
+<Warning>
+  The server host must allow inbound TCP traffic on the entire tunnel port range (default 20000–29999). Open these ports in your firewall or security group before starting the server agent.
+</Warning>
+
+## Managing allocations from the CLI
+
+Use the `allocations` subcommand to list, close, or delete your current tunnel allocations interactively:
+
+```bash
+cargo run --release -- allocations --backend https://your-backend.example
+```
+
+Within the interactive prompt:
+- Press `c` to close an allocation (removes the active tunnel but keeps the record)
+- Press `d` to permanently delete an allocation
+
+## API endpoints
+
+The following REST endpoints back the tunnel dashboard and the Rust agents:
+
+| Endpoint | Description |
+| -------- | ----------- |
+| `GET /api/tunnel/allocations` | List tunnel allocations visible to you |
+| `GET /api/tunnel/devices` | List your enrolled devices |
+| `POST /api/tunnel/device/approve` | Approve a pending device |
+| `DELETE /api/tunnel/devices/:id/delete` | Delete a device |
+| `POST /api/tunnel/devices/:id/regenerate-token` | Rotate a device's access token |
+| `POST /api/tunnel/device/start` | Begin device enrollment (used by the Rust agent) |
+| `GET /api/tunnel/device/poll` | Poll for enrollment approval (used by the Rust agent) |
+
+## Self-hosting the server agent
+
+When self-hosting, set the `TUNNEL_PUBLIC_HOST` environment variable on the backend to the public hostname of your server agent host. The panel constructs the public endpoint shown to users as `<TUNNEL_PUBLIC_HOST>:<allocated_port>`.
+
+Make sure `TUNNEL_PUBLIC_HOST` resolves in DNS to the machine running your server agent before starting any agents.
+
+```bash
+TUNNEL_PUBLIC_HOST=tunnel.example.com
+```
+
+Run the server agent as a supervised long-lived process using systemd, a container, or a process supervisor to ensure it restarts on failure.

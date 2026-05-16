@@ -1,0 +1,121 @@
+---
+title: "AI Studio and Chat: OpenAI-compatible endpoints"
+description: "Use AI Chat for quick conversations and AI Studio for advanced completions. Includes an OpenAI-compatible endpoint with per-user and per-org model access."
+---
+
+EcliPanel ships two AI surfaces — **AI Chat** for conversational interactions and **AI Studio** for more advanced prompting — backed by a model management layer that lets admins configure which AI models are available and restrict access by user or organisation. All AI features are controlled by the `ai` feature flag. If your deployment does not have AI configured, these endpoints and the AI navigation items are hidden entirely.
+
+<Info>
+  AI features require the `ai` feature flag to be enabled in your panel settings. Without it, all `/api/ai/*` endpoints return a feature-disabled error and the AI sections do not appear in the dashboard navigation.
+</Info>
+
+## AI Chat
+
+AI Chat is a lightweight conversational interface available to all users (no tier restriction):
+
+```bash
+POST /api/ai/chat
+```
+
+It is accessible at `/dashboard/ai-chat` in the frontend. The endpoint accepts a message and returns a streamed or buffered completion from the configured model.
+
+## AI Studio
+
+AI Studio provides a more capable interface for advanced prompting, code generation, and longer sessions. It is restricted to **Pro (paid) tier** and above:
+
+```bash
+POST /api/ai/studio
+```
+
+The Studio UI is at `/dashboard/ai-studio` and requires the `paid` portal tier in addition to the `ai` feature flag.
+
+## OpenAI-compatible endpoint
+
+EcliPanel exposes a drop-in OpenAI-compatible chat completions endpoint that you can point any OpenAI SDK or HTTP client at:
+
+```bash
+POST /api/ai/openai/v1/chat/completions
+POST /api/ai/openai/v1/completions
+```
+
+This means you can use the official `openai` Python or Node.js library with EcliPanel as the base URL:
+
+<CodeGroup>
+
+```python python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://your-panel.example/api/ai/openai/v1",
+    api_key="<your-eclipanel-api-key>",
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "How do I restart my Minecraft server?"}],
+)
+print(response.choices[0].message.content)
+```
+
+```typescript typescript
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "https://your-panel.example/api/ai/openai/v1",
+  apiKey: "<your-eclipanel-api-key>",
+});
+
+const response = await client.chat.completions.create({
+  model: "gpt-4o",
+  messages: [{ role: "user", content: "How do I restart my Minecraft server?" }],
+});
+console.log(response.choices[0].message.content);
+```
+
+```bash curl
+curl https://your-panel.example/api/ai/openai/v1/chat/completions \
+  -H "Authorization: Bearer <your-eclipanel-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      { "role": "user", "content": "How do I restart my Minecraft server?" }
+    ]
+  }'
+```
+
+</CodeGroup>
+
+The backend proxies the request to the configured upstream model endpoint using `requestWithFallback`, which automatically retries against alternative endpoints if the primary one is rate-limited.
+
+## Model management
+
+Admins configure which upstream models are available to the panel. Each `AIModel` record stores one or more endpoint definitions (base URL + API key). The backend cycles through endpoints and applies per-endpoint cooldowns when rate limits are encountered:
+
+```bash
+GET  /api/ai/models             # list models available to me
+GET  /api/ai/my-models          # my personal model access list
+GET  /api/admin/ai/models       # admin: list all models
+POST /api/admin/ai/models       # admin: register a new model
+```
+
+### Per-user and per-org model access
+
+Admins can grant specific models to individual users (`AIModelUser`) or to entire organisations (`AIModelOrg`). When the backend resolves available models for a request, it checks both the user's direct grants and the grants for all organisations they belong to:
+
+```bash
+POST /api/admin/users/:id/ai/:linkId   # link/update a model grant for a user
+```
+
+Users without an explicit grant can only access models that have been made globally available.
+
+## Usage tracking
+
+Every AI request is recorded in the `AIUsage` table. This lets admins audit consumption per user and per organisation through the SOC dashboard:
+
+```bash
+GET /api/soc/usage/user/:id    # AI usage for a specific user
+GET /api/soc/usage/org/:id     # AI usage for a specific organisation
+```
+
+Rate-limit events on upstream AI endpoints are also logged to Redis (`admin:ai:cooldowns`) for admin visibility.

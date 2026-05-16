@@ -1,0 +1,123 @@
+---
+title: "Role-based access control and permissions in EcliPanel"
+description: "How EcliPanel's role-based access control works, what permissions exist, how admins create and assign roles, and how to grant per-server sub-user access."
+---
+
+EcliPanel uses a role-based access control system where every privileged action is guarded by a named permission. Roles are collections of those permissions, and users inherit access by being assigned one or more roles. This model lets platform administrators grant staff precise access — for example, allowing a support agent to view tickets but not delete servers — without sharing full admin credentials. Regular users can also extend per-server access to collaborators through server sub-users without needing a formal role at all.
+
+## How roles work
+
+A **role** is a named record with an optional description and an ordered set of permission strings. When a request arrives, EcliPanel checks whether any of the requesting user's roles contain a permission that matches the required action. Matching supports wildcards: a permission value of `nodes:*` grants every action in the `nodes` category, and `*` alone grants everything on the platform.
+
+Roles can optionally inherit from a **parent role**, picking up all of the parent's permissions automatically.
+
+## The `rootAdmin` role
+
+The `rootAdmin` role carries the wildcard permission `*`, which means full access to every endpoint and admin panel section. The first administrator account on a fresh installation is promoted to `rootAdmin` using the CLI tool described below.
+
+<Warning>
+  The `rootAdmin` role bypasses every permission check. Assign it only to accounts that genuinely need unrestricted platform access. Use narrowly-scoped roles for day-to-day staff.
+</Warning>
+
+## Promoting a user via CLI
+
+Before any role management UI is accessible, you need at least one admin account. From the backend directory, run:
+
+```bash
+# Promote to rootAdmin (default)
+bun run promote -- admin@example.com
+
+# Promote to a specific role
+bun run promote -- admin@example.com rootAdmin
+bun run promote -- agent@example.com support-staff
+```
+
+The script connects to the database directly, finds the user by email, and updates their role field. It prints the old and new role so you can confirm the change took effect.
+
+## Creating and managing roles (admin)
+
+Roles are managed in the **Admin Panel → Roles** section. You must have the `roles:create`, `roles:read`, or `roles:*` permission to access these pages.
+
+<Steps>
+  <Step title="Open the Roles page">
+    Go to **Admin Panel → Roles** in the left navigation.
+  </Step>
+  <Step title="Create a new role">
+    Click **New role**, enter a name and optional description, and optionally select a parent role.
+  </Step>
+  <Step title="Add permissions">
+    With the role open, click **Add permission** and select one or more permission strings from the list. You can also type a permission value directly.
+  </Step>
+  <Step title="Assign the role to a user">
+    Navigate to **Admin Panel → Users**, open the user's profile, and assign the new role under the **Roles** section.
+  </Step>
+</Steps>
+
+## Available permissions
+
+Permissions follow a `category:action` convention. The table below shows the categories and representative values available in EcliPanel. Admin-only permissions are marked.
+
+| Category | Example permissions | Admin only |
+|---|---|---|
+| Global | `*`, `admin:access`, `admin:metrics`, `admin:settings` | Yes |
+| Servers | `servers:read`, `servers:write`, `servers:delete` | No |
+| Admin servers | `admin:servers:read`, `admin:servers:write`, `admin:servers:manage`, `admin:servers:suspend`, `admin:servers:delete` | Yes |
+| Nodes | `nodes:read`, `nodes:create`, `nodes:*` | Yes |
+| Billing | `billing:read`, `billing:write` | Yes |
+| Plans | `plans:read`, `admin:plans:view`, `admin:plans:manage`, `admin:plans:delete` | Mixed |
+| Orders | `orders:read`, `orders:create`, `orders:view`, `orders:issue` | Mixed |
+| Roles | `roles:read`, `roles:create`, `roles:*` | Yes |
+| Permissions | `permissions:assign` | Yes |
+| Users | `users:read`, `users:write`, `users:delete`, `users:suspend`, `admin:user:edit` | Yes |
+| API Keys | `apikeys:read`, `apikeys:create`, `apikeys:delete` | No |
+| Organisations | `org:read`, `org:write`, `org:invite`, `org:*` | Mixed |
+| KYC | `idverification:read`, `admin:kyc:view`, `admin:kyc:manage` | Yes |
+| AI | `ai:read`, `ai:manage`, `ai:*` | Mixed |
+| Tickets | `tickets:read`, `tickets:write`, `tickets:delete`, `tickets:ban`, `admin:ticket:staff` | Mixed |
+| Files | `files:read`, `files:write` | No |
+| Backups | `backups:read`, `backups:create`, `backups:write` | No |
+| Databases | `databases:read`, `databases:write` | Mixed |
+| Schedules | `schedules:read`, `schedules:create`, `schedules:write` | No |
+| Commands | `commands:execute` | No |
+| Anti-abuse | `admin:antiabuse` | Yes |
+| Fraud | `admin:fraud` | Yes |
+| Wings | `wings:system`, `wings:transfers`, `wings:backups`, `wings:*` | Yes |
+| SOC | `soc:read`, `soc:write`, `soc:*` | No |
+| Tunnels | `tunnels:read`, `admin:tunnels:read` | Mixed |
+
+<Info>
+  The complete permission list is served by the backend at `GET /api/permissions` and is what populates the role editor in the admin panel.
+</Info>
+
+## Server sub-users
+
+Server sub-users are a lightweight way to grant another EcliPanel account access to a specific server without giving them a global role. The owner of a server can invite sub-users from the server's **Settings → Sub-users** tab.
+
+When you add a sub-user you choose exactly which capabilities they receive for that server:
+
+| Sub-user permission | What it grants |
+|---|---|
+| `console` | View and send console commands |
+| `files` | Browse, edit, upload, and download files |
+| `backups` | Create and restore backups |
+| `databases` | View and manage server databases |
+| `schedules` | Create and edit scheduled tasks |
+| `startup` | View and edit startup parameters |
+| `settings` | Change basic server settings |
+| `network` | View network and allocation details |
+| `activity` | View the server activity log |
+| `stats` | View resource usage statistics |
+| `mounts` | View mount attachments |
+| `*` | Full access to all of the above |
+
+Sub-users receive an invitation email. They must accept the invite before they can access the server. You can revoke a sub-user's access at any time from the same **Sub-users** settings tab.
+
+<Note>
+  Sub-user permissions are scoped to a single server. They do not grant any access to other servers or any part of the platform outside that server's management pages.
+</Note>
+
+## Permission inheritance and defaults
+
+If a user has no roles assigned, EcliPanel falls back to the permissions on the built-in `default` role (if one exists). This lets you define a baseline of what every authenticated user can do without explicitly assigning a role to each account.
+
+When a user has multiple roles, permissions are merged — they receive the union of all permissions across every role they hold.

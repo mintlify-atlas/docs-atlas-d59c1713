@@ -1,0 +1,243 @@
+---
+title: "User account and session management API endpoints"
+description: "Register accounts, fetch profile data, manage active sessions, and control API keys and SSH keys for the authenticated user and admin-level lookups."
+---
+
+User endpoints cover everything from initial account registration through ongoing session management and credential storage. The `/api/users/me` alias always resolves to the currently authenticated user, making it the recommended starting point for client-side profile fetches.
+
+---
+
+## Profile
+
+### Get current user
+
+`GET /api/users/me`
+
+Returns the full profile of the authenticated user. Sensitive fields (`passwordHash`, active `sessions`) are stripped from the response. The `age` and `isChildAccount` fields are computed server-side from `dateOfBirth` and the user's billing country.
+
+```bash
+curl https://your-panel.example.com/api/users/me \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">User ID.</ResponseField>
+<ResponseField name="email" type="string">Email address.</ResponseField>
+<ResponseField name="firstName" type="string">First name.</ResponseField>
+<ResponseField name="lastName" type="string">Last name.</ResponseField>
+<ResponseField name="displayName" type="string">Optional display name overriding first/last.</ResponseField>
+<ResponseField name="role" type="string">System role: `user`, `staff`, `admin`, or `rootAdmin`.</ResponseField>
+<ResponseField name="portalType" type="string">Portal tier: `free`, `paid`, `educational`, or `enterprise`.</ResponseField>
+<ResponseField name="emailVerified" type="boolean">Whether the email address has been confirmed.</ResponseField>
+<ResponseField name="twoFactorEnabled" type="boolean">Whether TOTP two-factor authentication is active.</ResponseField>
+<ResponseField name="suspended" type="boolean">Whether the account is currently suspended.</ResponseField>
+<ResponseField name="limits" type="object">Resource limits assigned by the active plan.</ResponseField>
+<ResponseField name="settings" type="object">User-configurable panel settings (theme, locale, etc.).</ResponseField>
+
+---
+
+### Get user by ID
+
+`GET /api/users/:id`
+
+<ParamField path="id" type="number" required>User ID. Use `me` as an alias for the authenticated user.</ParamField>
+
+<Note>Non-admin users can only fetch their own profile. Staff and admin roles can fetch any user.</Note>
+
+```bash
+curl https://your-panel.example.com/api/users/123 \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Update user
+
+`PUT /api/users/:id`
+
+<ParamField path="id" type="number" required>User ID.</ParamField>
+<ParamField body="firstName" type="string">Updated first name.</ParamField>
+<ParamField body="lastName" type="string">Updated last name.</ParamField>
+<ParamField body="displayName" type="string">Display name override.</ParamField>
+<ParamField body="address" type="string">Billing address line 1.</ParamField>
+<ParamField body="billingCity" type="string">Billing city.</ParamField>
+<ParamField body="billingState" type="string">Billing state or region.</ParamField>
+<ParamField body="billingZip" type="string">Postal/ZIP code.</ParamField>
+<ParamField body="billingCountry" type="string">ISO 3166-1 alpha-2 country code.</ParamField>
+<ParamField body="dateOfBirth" type="string">Date of birth in `YYYY-MM-DD` format. Used for age verification.</ParamField>
+<ParamField body="settings" type="object">Partial settings object to merge with existing settings.</ParamField>
+
+---
+
+## Registration
+
+### Register a new account
+
+`POST /api/users/register`
+
+<Note>Registration may be gated by geo-block rules and feature flags. A `403` response means registration is disabled for the requester's country or region.</Note>
+
+<ParamField body="email" type="string" required>Email address. Must be unique.</ParamField>
+<ParamField body="password" type="string" required>Password. Must meet complexity requirements enforced server-side.</ParamField>
+<ParamField body="firstName" type="string" required>First name.</ParamField>
+<ParamField body="lastName" type="string" required>Last name.</ParamField>
+<ParamField body="dateOfBirth" type="string">Date of birth (`YYYY-MM-DD`). Required in age-restricted regions.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/users/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "player@example.com",
+    "password": "S3cur3P@ss!",
+    "firstName": "Alex",
+    "lastName": "Smith"
+  }'
+```
+
+<ResponseField name="success" type="boolean">Whether the account was created.</ResponseField>
+<ResponseField name="userId" type="number">Newly created user ID.</ResponseField>
+
+---
+
+## Sessions
+
+### List active sessions
+
+`GET /api/sessions/:userId`
+
+Returns all active browser sessions for a user.
+
+<ParamField path="userId" type="number" required>User ID. Must match the authenticated user unless the caller has admin privileges.</ParamField>
+
+<ResponseField name="id" type="string">Session token identifier.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="ipAddress" type="string">IP address the session was created from.</ResponseField>
+<ResponseField name="userAgent" type="string">Browser user agent string.</ResponseField>
+
+---
+
+### Log out current session
+
+`POST /api/sessions/logout`
+
+Invalidates the caller's current session cookie.
+
+```bash
+curl -X POST https://your-panel.example.com/api/sessions/logout \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Log out all sessions
+
+`POST /api/sessions/logout-all`
+
+Invalidates every active session for the authenticated user. Use this after a suspected account compromise.
+
+```bash
+curl -X POST https://your-panel.example.com/api/sessions/logout-all \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+## API keys
+
+### List your API keys
+
+`GET /api/apikeys/my`
+
+Returns all API keys belonging to the authenticated user.
+
+<ResponseField name="id" type="number">Key ID.</ResponseField>
+<ResponseField name="name" type="string">Key label.</ResponseField>
+<ResponseField name="prefix" type="string">First few characters of the key for identification.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="lastUsedAt" type="string">ISO 8601 last-use timestamp, or `null` if unused.</ResponseField>
+
+```bash
+curl https://your-panel.example.com/api/apikeys/my \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Create API key
+
+`POST /api/apikeys`
+
+<ParamField body="name" type="string" required>Human-readable label for the key.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/apikeys \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"CI/CD deploy key"}'
+```
+
+<ResponseField name="key" type="string">The full API key value. This is only returned once—store it immediately.</ResponseField>
+<ResponseField name="id" type="number">Key ID for future management.</ResponseField>
+
+<Warning>The plaintext key value is returned only at creation time. It cannot be retrieved again.</Warning>
+
+---
+
+### Delete API key
+
+`DELETE /api/apikeys/:id`
+
+<ParamField path="id" type="number" required>API key ID.</ParamField>
+
+```bash
+curl -X DELETE https://your-panel.example.com/api/apikeys/5 \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+## SSH keys
+
+### List SSH keys
+
+`GET /api/ssh-keys`
+
+Returns all SSH public keys stored for the authenticated user.
+
+<ResponseField name="id" type="number">Key ID.</ResponseField>
+<ResponseField name="name" type="string">Key label.</ResponseField>
+<ResponseField name="fingerprint" type="string">SHA-256 fingerprint of the public key.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>
+
+```bash
+curl https://your-panel.example.com/api/ssh-keys \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Add SSH key
+
+`POST /api/ssh-keys`
+
+<ParamField body="name" type="string" required>Label for this key.</ParamField>
+<ParamField body="publicKey" type="string" required>OpenSSH-format public key string.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/ssh-keys \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Laptop","publicKey":"ssh-ed25519 AAAA... user@laptop"}'
+```
+
+---
+
+### Delete SSH key
+
+`DELETE /api/ssh-keys/:id`
+
+<ParamField path="id" type="number" required>SSH key ID.</ParamField>
+
+```bash
+curl -X DELETE https://your-panel.example.com/api/ssh-keys/3 \
+  -H "Cookie: session=<token>"
+```

@@ -1,0 +1,171 @@
+---
+title: "Game server management: console, files, and power"
+description: "Create and control game servers with real-time console, SFTP file manager, scheduled tasks, backups, sub-users, and per-server startup configuration."
+---
+
+EcliPanel gives you full control over every game server's lifecycle from a single interface. You can provision new servers on any connected Wings node, send power commands, stream console output in real time, manage files over SFTP, run scheduled tasks, and grant other users limited access — all through the dashboard or the REST API.
+
+## Creating a server
+
+Servers are provisioned by an administrator through the admin panel at `/dashboard/admin`. When creating a server you select an **Egg** (the server type configuration), a **node** to host it on, and the resource limits (RAM, disk, CPU, port allocations). Users can view and manage their own servers at `/dashboard/servers`.
+
+<Info>
+  Each server is identified by a UUID that appears in all API paths as `:id`. You can find it on the server detail page or from the `GET /api/servers` response.
+</Info>
+
+## Power controls
+
+You can start, stop, restart, or forcefully kill a server from the dashboard or by calling:
+
+```bash
+POST /api/servers/:id/power
+```
+
+```json
+{ "signal": "start" }
+```
+
+The four valid power signals are:
+
+| Signal    | Effect                                                                 |
+| --------- | ---------------------------------------------------------------------- |
+| `start`   | Boots the server process via Wings.                                    |
+| `stop`    | Sends a graceful stop command defined by the Egg (e.g. `/stop`).       |
+| `restart` | Gracefully stops then immediately starts the server.                   |
+| `kill`    | Forcefully terminates the process — use when `stop` is unresponsive.  |
+
+<Warning>
+  `kill` immediately ends the process without saving state. Use `stop` or `restart` first whenever possible to avoid data loss.
+</Warning>
+
+Admins can also trigger power actions for any server at `POST /api/admin/servers/:id/power`.
+
+## Real-time console
+
+EcliPanel streams the server console over a WebSocket connection. Connect to the upgrade endpoint and then subscribe to the server's output:
+
+```bash
+GET /api/servers/:id/websocket
+```
+
+Once connected, send commands directly to the server process:
+
+```bash
+POST /api/servers/:id/commands
+```
+
+```json
+{ "command": "say Hello from EcliPanel!" }
+```
+
+You can also retrieve recent log output without a WebSocket:
+
+```bash
+GET /api/servers/:id/logs
+GET /api/servers/:id/logs/install
+```
+
+## File manager
+
+The file manager proxies file operations through Wings. Every file action below requires the server to exist on a healthy node.
+
+<CardGroup cols={2}>
+  <Card title="Browse and download" icon="folder-open">
+    `GET /api/servers/:id/files` lists directory contents. `GET /api/servers/:id/files/download` generates a signed download URL.
+  </Card>
+  <Card title="Upload and write" icon="upload">
+    `POST /api/servers/:id/files/upload` streams a file to Wings. `PUT /api/servers/:id/files/write` writes raw text content directly.
+  </Card>
+  <Card title="Organise" icon="arrows-up-down-left-right">
+    Create directories, move, rename, archive, and set permissions with `chmod` — all backed by dedicated endpoints under `/api/servers/:id/files/`.
+  </Card>
+  <Card title="SFTP access" icon="terminal">
+    KVM-enabled servers expose a parallel SFTP API at `/api/servers/:id/sftp/`. Validate SFTP credentials at `POST /api/servers/:id/sftp/validate`.
+  </Card>
+</CardGroup>
+
+## Backups
+
+EcliPanel lets you create and restore server backups via Wings:
+
+```bash
+GET    /api/servers/:id/backups          # list backups
+POST   /api/servers/:id/backups          # create a new backup
+POST   /api/servers/:id/backups/:bid/restore  # restore from a backup
+DELETE /api/servers/:id/backups/:bid     # delete a backup
+```
+
+<Note>
+  The number of backups a server can hold is determined by the plan assigned to the user. See the `backups` field on the `Plan` entity.
+</Note>
+
+## Schedules
+
+Recurring tasks — such as automated restarts or backups — are managed as schedules:
+
+```bash
+GET    /api/servers/:id/schedules        # list all schedules
+POST   /api/servers/:id/schedules        # create a schedule
+DELETE /api/servers/:id/schedules/:sid   # delete a schedule
+```
+
+Each schedule specifies a cron expression and a set of actions (power commands or console commands) that Wings executes at the defined interval.
+
+## Startup configuration
+
+Every server Egg defines default startup parameters and environment variables. You can view and update the startup environment for a specific server:
+
+```bash
+GET  /api/servers/:id/startup
+POST /api/servers/:id/startup
+```
+
+To change the Egg a server uses (admin action):
+
+```bash
+GET  /api/servers/:id/configuration/egg
+POST /api/servers/:id/configuration/egg
+```
+
+EcliPanel applies a configurable startup detection pattern (`DEFAULT_STARTUP_DETECTION_PATTERN`) to determine when Wings should mark the server as fully started. You can override this pattern per server.
+
+## Server stats and metrics
+
+Live resource usage (CPU, RAM, disk, network) is available from Wings via:
+
+```bash
+GET /api/servers/:id/stats
+GET /api/servers/:id/stats/history
+GET /api/servers/:id/stats/node
+GET /api/servers/:id/stats/node/history
+```
+
+Stats are extracted by the `metricsCollector` service and cached for dashboard display.
+
+## Sub-users
+
+You can grant other EcliPanel users limited access to a specific server without giving them full account privileges:
+
+```bash
+GET    /api/servers/:id/subusers             # list sub-users
+POST   /api/servers/:id/subusers             # invite a sub-user
+GET    /api/servers/:id/subusers/:subId      # get sub-user details
+PATCH  /api/servers/:id/subusers/:subId      # update sub-user permissions
+DELETE /api/servers/:id/subusers/:subId      # remove a sub-user
+```
+
+Sub-users can accept or reject invitations at `/api/subusers/invites/:inviteId/accept` and `/api/subusers/invites/:inviteId/reject`.
+
+## Egg configuration
+
+An **Egg** defines the server type: its startup command, Docker image, default environment variables, and startup detection rules. Admins manage Eggs at `GET /api/admin/eggs` and can import Egg definitions from JSON with `POST /api/admin/eggs/import`. Each server references a single Egg, which determines what software Wings installs and how it starts.
+
+## Server activity log
+
+Every power action, command, and configuration change is recorded in the server's activity log:
+
+```bash
+GET /api/servers/:id/activity
+```
+
+This log is useful for auditing sub-user actions and diagnosing unexpected server behaviour.

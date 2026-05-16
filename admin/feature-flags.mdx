@@ -1,0 +1,155 @@
+---
+title: 'Feature flags: enable and disable panel capabilities'
+description: 'Toggle registration, billing, AI, DNS, ticketing, applications, OAuth, and tunnels on or off panel-wide without a deployment using EcliPanel feature flags.'
+icon: 'toggle-left'
+---
+
+EcliPanel uses a feature flag system to enable or disable major capabilities across the entire panel without requiring a code deployment or server restart. Flags are stored as a single JSON object under the `panelFeatureToggles` key in the `PanelSetting` table. At runtime, every relevant API request checks the flag state before proceeding; disabled features return an immediate `503` response. This makes flags suitable for emergency shutoffs, gradual rollouts during maintenance, and environment-specific configuration (e.g., disabling billing on a staging instance).
+
+## How flags work
+
+When a request arrives the backend middleware in `src/routes/index.ts` checks the request path against a set of feature-to-prefix mappings. If the matching flag is disabled, the middleware short-circuits the request before it reaches any handler:
+
+```typescript
+// Simplified from src/routes/index.ts
+const checks = [
+  { prefix: '/api/ai',                    feature: 'ai' },
+  { prefix: '/api/tickets',               feature: 'ticketing' },
+  { prefix: '/api/admin/tickets',         feature: 'ticketing' },
+  { prefix: '/api/applications',          feature: 'applications' },
+  { prefix: '/api/admin/applications',    feature: 'applications' },
+  { prefix: '/api/public/applications',   feature: 'applications' },
+  { prefix: '/api/orders',               feature: 'billing' },
+  { prefix: '/api/admin/orders',          feature: 'billing' },
+  { prefix: '/api/plans',                feature: 'billing' },
+  { prefix: '/api/oauth',                feature: 'oauth' },
+  { prefix: '/api/users/register',        feature: 'registration' },
+];
+```
+
+DNS is checked separately for requests matching `/api/organisations/*/dns/*`. OAuth well-known endpoints (`.well-known/oauth-authorization-server`) are also gated on the `oauth` flag.
+
+### Disabled feature response
+
+Any request to a path covered by a disabled flag receives:
+
+```http
+HTTP/1.1 503 Service Unavailable
+Content-Type: application/json
+
+{
+  "error": "Feature 'billing' is disabled"
+}
+```
+
+The error message names the specific feature that is disabled, which makes debugging straightforward from client logs.
+
+## Toggling flags
+
+Flags are read and written through the admin settings API. You need the `admin:settings` permission.
+
+```http
+GET /api/admin/settings
+```
+
+Returns the current `PanelSetting` rows. Look for the `panelFeatureToggles` key:
+
+```json
+{
+  "key": "panelFeatureToggles",
+  "value": "{\"registration\":true,\"billing\":true,\"ai\":true,\"dns\":true,\"ticketing\":true,\"applications\":true,\"oauth\":true,\"tunnels\":true}"
+}
+```
+
+To update one or more flags, `PATCH /api/admin/settings` with the updated `panelFeatureToggles` value:
+
+```http
+PATCH /api/admin/settings
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{
+  "panelFeatureToggles": {
+    "registration": false,
+    "billing": true,
+    "ai": true,
+    "dns": true,
+    "ticketing": true,
+    "applications": true,
+    "oauth": true,
+    "tunnels": false
+  }
+}
+```
+
+You can also toggle flags from the **Settings** tab in the Staff Portal, which presents the same underlying API through a UI.
+
+<Note>
+  Flag state is cached per-request from the database. There is no in-memory cache to clear — a change via the API takes effect on the very next request.
+</Note>
+
+## Flag reference
+
+The following flags are recognized by EcliPanel. All default to `true` (enabled).
+
+| Flag | Default | What it controls |
+|---|---|---|
+| `registration` | `true` | New user sign-up via `POST /api/users/register`. Disabling this prevents new accounts without affecting existing users. |
+| `billing` | `true` | Orders (`/api/orders`), admin orders (`/api/admin/orders`), and plans (`/api/plans`). Disabling hides billing UI and blocks plan purchases. |
+| `ai` | `true` | AI chat (`/api/ai/chat`), AI Studio (`/api/ai/studio`), and model completions. Disabling removes AI sections from the nav. |
+| `dns` | `true` | Organisation DNS zone management (`/api/organisations/:id/dns/*`). Disabling removes DNS controls from organisation settings. |
+| `ticketing` | `true` | User and admin ticket endpoints (`/api/tickets`, `/api/admin/tickets`). Disabling prevents ticket creation and staff replies. |
+| `applications` | `true` | Application forms and submissions for users, admins, and public endpoints. Disabling prevents form submissions. |
+| `oauth` | `true` | OAuth login via GitHub and HackClub, plus the OAuth well-known discovery endpoint. Disabling forces password/passkey-only login. |
+| `tunnels` | `true` | EcliTunnel allocation and device management. Disabling removes tunnel controls from the nav for all users. |
+
+<AccordionGroup>
+  <Accordion title="registration">
+    Covers `POST /api/users/register`. When disabled, the registration page can still be rendered by the frontend but form submission fails with a `503`. Use this during maintenance windows or to run a closed-access deployment where accounts are created only by administrators via the CLI or direct database insertion.
+  </Accordion>
+
+  <Accordion title="billing">
+    Covers all of `/api/orders`, `/api/admin/orders`, and `/api/plans`. The billing flag also controls whether the **Billing** nav item is shown to users (the frontend reads `/api/public/features`). Disable this on instances that use a flat resource allocation model instead of a subscription system.
+  </Accordion>
+
+  <Accordion title="ai">
+    Covers all endpoints under `/api/ai`, including chat completions, Studio, and the OpenAI-compatible proxy at `/api/ai/openai/v1/*`. AI model management in the Staff Portal (`/api/admin/ai/models`) is not blocked by this flag — only user-facing AI consumption endpoints are gated.
+  </Accordion>
+
+  <Accordion title="dns">
+    Covers any request path matching `/api/organisations/:id/dns/*`. Organisation DNS zones are managed via Wings node DNS integration. Disabling this flag is appropriate when your deployment does not include a DNS backend or when the DNS infrastructure is undergoing maintenance.
+  </Accordion>
+
+  <Accordion title="ticketing">
+    Covers `/api/tickets` and `/api/admin/tickets`. When disabled, users cannot open new tickets and staff cannot reply through the portal. Existing ticket data is preserved; the flag only blocks API access.
+  </Accordion>
+
+  <Accordion title="applications">
+    Covers `/api/applications`, `/api/admin/applications`, and `/api/public/applications`. Application forms include staff applications, beta program sign-ups, and other structured intake flows. Disabling prevents form submissions but not form listings, so the frontend can still display "Applications are currently closed."
+  </Accordion>
+
+  <Accordion title="oauth">
+    Covers `/api/oauth` and the `.well-known/oauth-authorization-server` discovery document. Disabling this flag removes GitHub and HackClub login options. Users who registered solely via OAuth and have no password set will be unable to log in; ensure those users set a password before disabling OAuth.
+
+    <Warning>
+      If any users have OAuth as their only login method, disabling this flag will lock them out. Verify all accounts have an alternative credential (password or passkey) before toggling this flag off.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="tunnels">
+    Controls EcliTunnel allocations and device management. Tunnel endpoints (`/api/tunnel/*`) are not listed in the middleware's `checks` array — the flag is enforced at the nav-config level: the frontend reads `/api/public/features` and hides the Tunnels nav item when the flag is `false`. Staff can still reach the Tunnels admin tab regardless of this flag.
+  </Accordion>
+</AccordionGroup>
+
+## Additional toggles
+
+The `featureToggles.ts` defaults object includes several additional flags beyond the eight exposed in the `FeatureFlag` frontend type:
+
+| Key | Default | Purpose |
+|---|---|---|
+| `tempEmailFilter` | `true` | Blocks disposable/temporary email addresses at registration. |
+| `captcha` | `true` | Enables CAPTCHA on login and registration forms. |
+| `captchaInvisible` | `false` | Uses an invisible CAPTCHA variant instead of a visible challenge. |
+| `dedicatedIps` | `true` | Allows users to request dedicated IP addresses for servers. |
+
+These flags can be set via the same `panelFeatureToggles` settings key. They are not surfaced as frontend `FeatureFlag` types but are recognized by the backend's `isFeatureEnabled` utility.

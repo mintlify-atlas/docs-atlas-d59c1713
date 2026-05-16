@@ -1,133 +1,67 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
-icon: 'star'
+title: "EcliPanel: Enterprise Game Server Control Panel"
+description: "EcliPanel is a multi-tenant game server control panel with Wings orchestration, billing, DNS management, AI endpoints, and Rust-powered abuse protection."
 ---
 
-## Setting up
+EcliPanel gives hosting providers and teams a single, secure interface to provision and manage game servers across distributed Wings nodes. From spinning up a Minecraft server to monitoring your entire fleet's resource usage, EcliPanel handles the full lifecycle — with built-in billing, DNS, AI tools, and a Rust-powered anti-abuse system running on every node.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get EcliPanel running in minutes with backend, frontend, and Wings node connected
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how the backend, frontend, Wings nodes, and tunnel agents fit together
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Server Management" icon="server" href="/features/server-management">
+    Create, monitor, and control game servers with real-time console and file access
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="API Reference" icon="code" href="/api-reference/overview">
+    Explore the full REST API with authentication, endpoints, and request/response schemas
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What EcliPanel includes
 
-Everything you need to create world-class documentation.
+EcliPanel is built as a full-stack platform with distinct components that work together:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={3}>
+  <Card title="Game Server Control" icon="gamepad" href="/features/server-management">
+    Power, console, file manager, backups, schedules, and startup configuration per server
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Wings Node Orchestration" icon="network-wired" href="/features/nodes-and-wings">
+    Connect remote Wings nodes and distribute servers across your infrastructure
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Organisations and Teams" icon="building" href="/features/organisations">
+    Multi-tenant workspace with member roles, shared servers, and DNS zones
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="Billing and Plans" icon="credit-card" href="/features/billing-and-plans">
+    Plans, orders, and PDF invoice generation for hosting providers
   </Card>
-</Columns>
+  <Card title="AI Studio and Chat" icon="sparkles" href="/features/ai-features">
+    OpenAI-compatible AI endpoints with per-user and per-org model access control
+  </Card>
+  <Card title="EcliTunnel" icon="shield-halved" href="/features/tunnels">
+    Secure TCP tunnels via Rust client/server agents with panel-managed allocations
+  </Card>
+</CardGroup>
 
-## Make your content agent ready
+## Get started
 
-Make your docs work for humans and AI agents alike.
+<Steps>
+  <Step title="Install Wings">
+    EcliPanel requires [wings-rs](https://github.com/calagopus/wings) — the Rust-based Wings agent. Install it on each node host before configuring the panel.
+  </Step>
+  <Step title="Deploy the backend">
+    Set up the Elysia/Bun API server with MariaDB, Redis, and your environment variables. Run `bun run seed` to create the default admin role.
+  </Step>
+  <Step title="Deploy the frontend">
+    Configure the Next.js frontend with your backend URL and branding settings in `lib/panel-config.ts`, then start it on port 3000.
+  </Step>
+  <Step title="Connect your first node">
+    From the admin panel, register your Wings node, generate a token, and configure Wings to connect back to your EcliPanel backend.
+  </Step>
+</Steps>
 
-<Columns cols={2}>
-  <Card
-    title="Prompt component"
-    icon="robot"
-    href="/agent-ready/prompt"
-  >
-    Embed shareable AI prompts readers can copy or open in Cursor.
-  </Card>
-  <Card
-    title="Visibility"
-    icon="eye"
-    href="/agent-ready/visibility"
-  >
-    Show different content to humans and agents reading your docs.
-  </Card>
-  <Card
-    title="Contextual menu"
-    icon="bolt"
-    href="/agent-ready/contextual"
-  >
-    Give readers one-click access to Claude, ChatGPT, Cursor, and more.
-  </Card>
-  <Card
-    title="AI coding tools"
-    icon="wand-magic-sparkles"
-    href="/ai-tools/claude-code"
-  >
-    Set up Claude Code, Cursor, or Windsurf with Mintlify's skill.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+  EcliPanel is open source for non-commercial use. For production deployments, see the [self-hosting guide](/self-hosting/installation) and [systemd setup](/self-hosting/systemd-deployment).
+</Note>

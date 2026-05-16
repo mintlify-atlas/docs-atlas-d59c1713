@@ -1,0 +1,181 @@
+---
+title: "Wings node management REST API endpoints"
+description: "Register Wings nodes, issue auth tokens, monitor heartbeat health, and perform bulk allocation and reboot operations across your node fleet."
+---
+
+Nodes are the compute hosts that run game server processes. EcliPanel communicates with each node through the Wings agent. The endpoints here let administrators register new nodes, issue authentication tokens, monitor node health via heartbeats, and perform bulk operations across all servers on a node.
+
+<Note>Most node endpoints require admin-level permissions or the `nodes:read` / `nodes:create` permission. The `/api/nodes/available` endpoint is open to all authenticated users and returns only the nodes compatible with their portal tier.</Note>
+
+---
+
+## Node listing
+
+### List all nodes
+
+`GET /api/nodes`
+
+Returns all registered nodes with their configuration. Credentials (`rootUser`, `rootPassword`, `token`) are stripped from the response.
+
+**Required permission:** `nodes:read` (admin)
+
+```bash
+curl https://your-panel.example.com/api/nodes \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Node record ID.</ResponseField>
+<ResponseField name="name" type="string">Human-readable node name.</ResponseField>
+<ResponseField name="url" type="string">Wings agent base URL.</ResponseField>
+<ResponseField name="nodeType" type="string">One of `free`, `paid`, `free_and_paid`, or `enterprise`.</ResponseField>
+<ResponseField name="fqdn" type="string">Fully-qualified domain name used for player connections.</ResponseField>
+<ResponseField name="useSSL" type="boolean">Whether TLS is enabled on the Wings agent.</ResponseField>
+<ResponseField name="organisation" type="object">
+  <Expandable title="properties">
+    <ResponseField name="id" type="number">Organisation ID that owns this node, if enterprise-assigned.</ResponseField>
+    <ResponseField name="name" type="string">Organisation name.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### List available nodes
+
+`GET /api/nodes/available`
+
+Returns the subset of nodes available to the authenticated user based on their portal tier. Enterprise users see only nodes assigned to their organisations; free and paid users see nodes matching their tier. Unhealthy nodes are excluded automatically.
+
+```bash
+curl https://your-panel.example.com/api/nodes/available \
+  -H "Cookie: session=<token>"
+```
+
+<Tip>Results are cached for 10 seconds per user. If you recently changed a user's portal tier, allow up to 10 seconds for the available node list to update.</Tip>
+
+---
+
+### Get node details
+
+`GET /api/nodes/:id`
+
+<ParamField path="id" type="string" required>Node ID or UUID.</ParamField>
+
+**Required permission:** `nodes:read` (admin)
+
+```bash
+curl https://your-panel.example.com/api/nodes/7 \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+## Token management
+
+### Generate a node token
+
+`POST /api/nodes/generate-token`
+
+Issues a new Wings authentication token. Used when bootstrapping a fresh node installation.
+
+**Required permission:** `nodes:create`
+
+<ParamField body="name" type="string" required>Display name for the node.</ParamField>
+<ParamField body="url" type="string" required>Base URL of the Wings agent (e.g. `https://node1.example.com:8080`).</ParamField>
+<ParamField body="nodeType" type="string">Portal tier this node serves. One of `free`, `paid`, `free_and_paid`, or `enterprise`. Defaults to `free`.</ParamField>
+<ParamField body="useSSL" type="boolean">Override TLS detection. Defaults to `true` when `url` starts with `https://`.</ParamField>
+<ParamField body="fqdn" type="string">FQDN for player-facing connections.</ParamField>
+<ParamField body="ipv6Subnet" type="string">IPv6 CIDR block assigned to this node (e.g. `2001:db8::/64`).</ParamField>
+<ParamField body="portRangeStart" type="number">Lowest port in the allocation range (1–65535).</ParamField>
+<ParamField body="portRangeEnd" type="number">Highest port in the allocation range (1–65535).</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/nodes/generate-token \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "EU Node 1",
+    "url": "https://eu1.nodes.example.com:8080",
+    "nodeType": "paid",
+    "useSSL": true,
+    "portRangeStart": 25000,
+    "portRangeEnd": 30000
+  }'
+```
+
+<ResponseField name="success" type="boolean">Whether registration succeeded.</ResponseField>
+<ResponseField name="node" type="object">
+  <Expandable title="properties">
+    <ResponseField name="id" type="number">Assigned node ID.</ResponseField>
+    <ResponseField name="name" type="string">Node name.</ResponseField>
+    <ResponseField name="url" type="string">Wings agent URL.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Heartbeats
+
+### Get node heartbeats
+
+`GET /api/nodes/:id/heartbeats`
+
+Returns the recent heartbeat history for a node, used to determine health and uptime.
+
+**Required permission:** admin
+
+<ParamField path="id" type="string" required>Node ID.</ParamField>
+
+```bash
+curl https://your-panel.example.com/api/nodes/7/heartbeats \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="timestamp" type="string">ISO 8601 heartbeat time.</ResponseField>
+<ResponseField name="healthy" type="boolean">Whether the node responded successfully.</ResponseField>
+<ResponseField name="latencyMs" type="number">Round-trip latency in milliseconds.</ResponseField>
+
+---
+
+## Fleet operations
+
+### Mass allocation change
+
+`POST /api/nodes/:id/mass-allocation-change`
+
+Bulk-updates the port allocations for all servers on a node. Useful when renumbering a port range after a node migration.
+
+**Required permission:** admin
+
+<ParamField path="id" type="string" required>Node ID.</ParamField>
+<ParamField body="offset" type="number">Port number delta to apply to all existing allocations.</ParamField>
+
+<Warning>This operation modifies allocation records for every server on the node. Test against a staging environment before using in production.</Warning>
+
+```bash
+curl -X POST https://your-panel.example.com/api/nodes/7/mass-allocation-change \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"offset": 1000}'
+```
+
+---
+
+### Reboot all servers on a node
+
+`POST /api/nodes/:id/reboot-all-servers`
+
+Sends a restart signal to every server running on the specified node. An operation ID is returned that can be polled at `/api/nodes/:id/reboot-status/:operationId`.
+
+**Required permission:** admin
+
+<ParamField path="id" type="string" required>Node ID.</ParamField>
+
+<Warning>This will interrupt all running game servers on the node. Notify users before executing.</Warning>
+
+```bash
+curl -X POST https://your-panel.example.com/api/nodes/7/reboot-all-servers \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="success" type="boolean">Whether the reboot job was queued.</ResponseField>
+<ResponseField name="operationId" type="string">ID used to poll progress at `/api/nodes/:id/reboot-status/:operationId`.</ResponseField>

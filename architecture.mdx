@@ -1,0 +1,162 @@
+---
+title: "EcliPanel system architecture and component overview"
+description: "How EcliPanel's Elysia backend, Next.js frontend, wings-rs node agent, Rust anti-abuse daemon, and EcliTunnel TCP tunnel agents communicate."
+---
+
+EcliPanel is a distributed system built from four main components: a Bun/Elysia backend API, a Next.js frontend, a Rust anti-abuse daemon that runs on each node host, and EcliTunnel — a pair of Rust client/server agents for secure TCP tunneling. All server workloads run on Wings nodes managed by wings-rs, and the backend communicates with those nodes over authenticated REST and WebSocket connections.
+
+## Backend
+
+The backend is an Elysia application running on Bun. It is the central authority for all panel state: users, roles, servers, nodes, organisations, billing, DNS, AI endpoints, tickets, and more.
+
+**Runtime:** Bun (TypeScript executed directly — no compile step required)  
+**Framework:** Elysia v3  
+**Database:** MariaDB via TypeORM  
+**Cache / queues:** Redis  
+**Default port:** Configured via `PORT` in `backend/.env`
+
+The backend is responsible for:
+
+- Serving the REST API consumed by the frontend (`/api/*`)
+- Proxying WebSocket connections from browser clients to Wings nodes
+- Mapping requests to the correct Wings node based on server allocation
+- Running background jobs: mailbox sync, metrics collection, export processing, deletion execution, student reverification, sunset policy, and admin broadcast
+- Generating JWT tokens for node authentication
+- Producing PDF invoices and handling billing state
+
+<Info>
+  The full API is documented interactively at `/openapi` on your backend host. A live instance is available at [backend.ecli.app/openapi](https://backend.ecli.app/openapi). A canary build (when active) is at [backend.canary.ecli.app/openapi](https://backend.canary.ecli.app/openapi).
+</Info>
+
+### Backend environment
+
+The backend reads all configuration from `backend/.env`. The most important variables are:
+
+| Variable | Purpose |
+|---|---|
+| `DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME` | MariaDB credentials |
+| `JWT_SECRET` | Signs user session tokens |
+| `NODE_ENCRYPTION_KEY` | Encrypts node credentials at rest |
+| `NODE_PQ_ENCRYPTION_SEED` | Post-quantum encryption seed for node communication |
+| `REDIS_URL` | Redis connection (jobs, caching) |
+| `PDNS_BASE_URL`, `PDNS_API_KEY` | PowerDNS integration for DNS management |
+| `SMTP_*` | Outbound email for notifications and verification |
+| `CLOUDFLARE_API_TOKEN` | Optional Cloudflare DNS integration |
+| `ANTIABUSE_AI_ENABLED` | Enables AI-assisted abuse detection |
+
+---
+
+## Frontend
+
+The frontend is a Next.js (React) application. It does not store panel state — instead, it proxies all API traffic to the backend and optionally to Wings nodes via URL rewrites defined in `next.config.mjs`.
+
+**Runtime:** Node.js or Bun  
+**Framework:** Next.js with next-intl for localisation  
+**Default port:** `3000`
+
+**Proxy rewrites configured in `next.config.mjs`:**
+
+| Frontend path | Proxied to |
+|---|---|
+| `/api/:path*` | `BACKEND_URL/api/:path*` |
+| `/wings/:path*` | `NEXT_PUBLIC_WINGS_BASE/:path*` |
+| `/public/:path*` | `BACKEND_URL/public/:path*` |
+| `/uploads/:path*` | `BACKEND_URL/uploads/:path*` |
+| `/health` | `BACKEND_URL/health` |
+
+This means the browser never needs a direct route to the backend or Wings nodes — all traffic flows through the frontend's Next.js server, simplifying firewall rules and SSL termination.
+
+### Panel configuration
+
+`frontend/lib/panel-config.ts` is the central configuration file for branding, navigation, portal tiers, feature flags, and API endpoint paths. Edit this file to set your company name, logo, and to enable or disable features such as billing, AI, DNS, tunneling, ticketing, and OAuth providers.
+
+**Navigation sections defined in `panel-config.ts`:**
+
+- **Overview** — SOC Dashboard, Account Activity, Organisations
+- **Infrastructure** — Servers, Tunnels, Nodes (enterprise tier)
+- **AI** — AI Studio (paid tier), AI Chat
+- **Support** — Tickets, Applications
+- **Account** — Identity, Mailbox, Billing, Family, Settings
+- **Administration** — Staff Portal
+
+**Portal tiers:** `free`, `paid`, `enterprise`, `educational` — each with configurable server limits and feature access.
+
+---
+
+## Anti-abuse daemon
+
+The anti-abuse daemon is a Rust binary that runs on each Wings node host alongside wings-rs. It monitors network traffic and process activity on the node and reports detected incidents back to the EcliPanel backend.
+
+**Language:** Rust  
+**Location in repo:** `/antiabuse`  
+**Deployment:** One instance per node host, managed via systemd
+
+The daemon detects:
+
+- **DDoS attacks** — volumetric and protocol-level flood patterns
+- **Port scanning** — systematic connection probing across port ranges
+- **Crypto mining** — CPU/GPU abuse patterns consistent with mining workloads
+- **Nezha proxies** — detection of unauthorized proxy agent installations
+
+Incidents are surfaced in the admin panel under **Anti-abuse Incidents** (`/api/admin/antiabuse/incidents`). Admins can update incident status, bulk-dismiss, or delete records. When `ANTIABUSE_AI_ENABLED=true` in the backend `.env`, AI-assisted classification is applied to incoming incident reports.
+
+---
+
+## EcliTunnel
+
+EcliTunnel provides secure TCP tunnels that allow game servers (or other services) to be reachable via panel-managed network endpoints, even when the underlying node is behind NAT or a restrictive firewall.
+
+**Language:** Rust  
+**Components:** Client agent (runs on the end user's machine) and server agent (runs on an EcliPanel-connected host)  
+**API surface:** `/api/tunnel/*` endpoints manage allocations, devices, and token lifecycle
+
+**How it works:**
+
+1. A user registers a tunnel device through the panel. The panel issues a device token.
+2. The client agent authenticates with the token and establishes a persistent connection to the tunnel server agent.
+3. The tunnel server agent forwards traffic from the allocated panel endpoint to the client agent, which delivers it to the local service.
+
+Tunnel allocations and device management are available to users in the **Tunnels** section of the dashboard (when the `tunnels` feature flag is enabled in `panel-config.ts`).
+
+---
+
+## Wings-rs node agent
+
+All game server workloads run on Wings nodes. EcliPanel requires [wings-rs](https://github.com/calagopus/wings) — the Rust rewrite of the original pterodactyl Wings agent.
+
+<Warning>
+  You cannot use pterodactyl's wings-go with EcliPanel. The panel is developed and tested against wings-rs exclusively. Most features — including WebSocket proxying, node credential encryption, and multi-node mapping — will not function correctly with wings-go.
+</Warning>
+
+The backend communicates with wings-rs over:
+
+- **REST** — for server provisioning, power actions, file operations, and configuration
+- **WebSocket** — proxied from the frontend through the backend to the Wings node for real-time console output and stats streaming
+
+Node credentials are encrypted at rest in the database using `NODE_ENCRYPTION_KEY` and `NODE_PQ_ENCRYPTION_SEED`. The backend generates per-node JWT tokens (via `/api/nodes/:id/token`) that wings-rs uses to authenticate its connection back to the panel.
+
+---
+
+## Component communication diagram
+
+```
+Browser
+  │
+  ▼
+Next.js frontend (:3000)
+  │  /api/*  ──────────────────────────────▶  Elysia backend (:PORT)
+  │                                               │       │
+  │  /wings/*  ─────────────────────┐             │   MariaDB
+  │                                 │             │   Redis
+  │  (WebSocket to /api/servers     │             │   PowerDNS
+  │   /:id/websocket proxied        │             │   SMTP / Mailcow
+  │   through backend)              │             │
+  │                                 ▼             ▼
+  │                          wings-rs node agent (:8080)
+  │                                 │
+  │                         Anti-abuse daemon (Rust, same host)
+  │
+  └─── EcliTunnel server agent ◀─── EcliTunnel client agent (user machine)
+```
+
+Each node host runs wings-rs and the anti-abuse daemon as separate systemd services. The frontend and backend can run on the same host or on separate machines — the only requirement is that the backend can reach each Wings node over the network.

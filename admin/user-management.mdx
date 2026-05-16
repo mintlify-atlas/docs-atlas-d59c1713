@@ -1,0 +1,110 @@
+---
+title: 'User account management in the Staff Portal'
+description: 'Search, inspect, edit, and act on user accounts from the Staff Portal: plans, verification, exports, deletion requests, fraud scanning, and role promotion.'
+icon: 'users'
+---
+
+The **Users** tab in the Staff Portal gives you a complete view of every account in EcliPanel. From a single interface you can search across all users, view their profile and activity history, apply or cancel plans, manage verification status, handle deletion requests, and kick off data exports. Granular permissions control which actions each staff member can take, so a first-level support agent and a root administrator see different capabilities on the same screen.
+
+## Listing and searching users
+
+The Users tab loads the full user list from `GET /api/admin/users`. A local search field filters the in-memory list by name and email. For a broader, cross-entity search — covering users, organisations, servers, and orders simultaneously — use the **Global Search** field at the top of the portal, which calls `GET /api/admin/search`:
+
+```http
+GET /api/admin/search?q=alice
+```
+
+Each user row exposes their portal tier, verification status (`emailVerified`, `idVerified`), suspension state, passkey count, and registration date. Clicking a row opens a detailed side-panel with their full profile, billing information, and linked GitHub account if OAuth is connected.
+
+## Viewing profiles and activity logs
+
+Inside a user's detail view you can inspect:
+
+- **Personal information** — name, email, date of birth, address, and billing details.
+- **Account flags** — `emailVerified`, `idVerified`, `suspended`, `supportBanned`, `studentVerified`, `demoUsed`.
+- **Contributor profile** — GitHub login, contributor title, and an activity ledger with scored entries (`GET /api/admin/users/:id/contributor-profile`).
+- **User activity logs** — pulled via `GET /api/admin/users/:id` which aggregates `UserLog` entries for the account.
+- **User documents** — uploaded identity documents (`GET /api/admin/users/:id/documents`). Requires the `admin:users:documents` permission.
+
+## Applying and canceling plans
+
+You can assign a billing plan to any user directly from the portal without the user needing to complete a checkout flow.
+
+<Steps>
+  <Step title="Open the user detail panel">
+    Click the user's row in the Users tab to open their profile dialog.
+  </Step>
+  <Step title="Select a plan">
+    Use the **Apply Plan** control to choose from the list of available plans returned by `GET /api/admin/plans`.
+  </Step>
+  <Step title="Confirm the action">
+    The portal calls `POST /api/admin/users/:id/apply-plan` with the selected plan ID. The user's portal tier and resource limits update immediately.
+  </Step>
+</Steps>
+
+To remove a plan without issuing a new one, use **Cancel Plan**, which calls `DELETE /api/admin/users/:id/cancel-plan`. You can check a user's current active plan at any time with `GET /api/admin/users/:id/current-plan`.
+
+## Managing verification status
+
+EcliPanel supports two independent verification tracks: **student verification** (via GitHub Student or HackClub) and **identity verification** (KYC document upload).
+
+- **Deassign student status** — removes the student verification from an account: `DELETE /api/admin/users/:id/deassign-student`.
+- **Require re-verification** — flags the account so the user must re-verify on next login: `POST /api/admin/users/:id/require-student-reverify`.
+- **KYC review** — pending identity verifications appear in the **KYC** tab (`GET /api/admin/verifications`). Staff with `idverification:read` can approve or reject document submissions and view uploaded ID and selfie images.
+
+## Handling deletion requests
+
+When a user requests account deletion it creates a `DeletionRequest` that appears in the **Deletions** tab (`GET /api/admin/deletions`). As a staff member you can:
+
+- **Expedite** the deletion immediately: `POST /api/admin/deletions/:id/expedite` — runs `executeDeletionRequest` outside the scheduled job.
+- **Cancel** the deletion request: `POST /api/admin/deletions/:id/cancel` — restores the account to normal status.
+
+<Warning>
+  Expediting a deletion is irreversible. The user's data, servers, and associated resources are removed immediately. Confirm the request is legitimate before proceeding.
+</Warning>
+
+## Export jobs
+
+EcliPanel can generate encrypted data exports of a user's account for GDPR or similar compliance workflows. The export is created as a background job and then downloaded once complete.
+
+```http
+POST /api/admin/users/:id/export-job
+```
+
+You can monitor all running export jobs via `GET /api/admin/export-jobs` and poll a specific job's status at `GET /api/admin/export-jobs/:id`. Once the job status is `completed`, download the archive with `GET /api/admin/export-jobs/:id/download`. To share the download with a third party without exposing admin credentials, generate a time-limited share link:
+
+```http
+POST /api/admin/export-jobs/:id/share-link
+```
+
+## Fraud alerts and scanning
+
+The **Fraud** tab (`GET /api/admin/fraud-alerts`) aggregates automated fraud signals raised by the Rust anti-abuse layer and heuristic checks. For each alert you can:
+
+- **View the alert details** — reason, source IP, and triggering conditions.
+- **Take action** — `PATCH /api/admin/fraud-alerts/:id` to update the alert status (dismiss, escalate, etc.).
+- **Bulk dismiss** multiple alerts at once: `POST /api/admin/fraud-alerts/dismiss`.
+- **Trigger a manual fraud scan** for a specific user: `POST /api/admin/fraud-scan/:id`.
+- **Scan all users** in a background sweep: `POST /api/admin/fraud-scan-all`.
+
+## Promoting users via CLI
+
+The fastest way to grant admin or other privileged roles to a user is through the backend CLI:
+
+```bash
+bun run promote -- email@example.com [role]
+```
+
+Replace `[role]` with any valid role string: `admin`, `rootAdmin`, or a custom role name. This writes directly to the database and takes effect on the user's next authenticated request, without requiring a portal session.
+
+<Info>
+  Role assignment via the CLI bypasses permission checks. Reserve it for bootstrapping the first admin account or recovering from a misconfiguration. Day-to-day role changes should go through the **Roles** tab in the portal.
+</Info>
+
+## Student verification management
+
+Accounts created through the GitHub Student or HackClub OAuth flows receive the `studentVerified` flag and are placed on the **educational** portal tier. As an administrator you can:
+
+- View the verification source on the user's profile (`githubLogin`, `githubProfileUrl`).
+- Revoke student status with `DELETE /api/admin/users/:id/deassign-student`.
+- Force re-verification if you suspect the student credential has expired or was obtained fraudulently with `POST /api/admin/users/:id/require-student-reverify`.

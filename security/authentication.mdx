@@ -1,0 +1,146 @@
+---
+title: "Authentication and account security in EcliPanel"
+description: "How users log in to EcliPanel, protect their accounts with 2FA or passkeys, manage sessions, and authenticate programmatically with API keys."
+---
+
+EcliPanel gives you several ways to prove your identity and keep your account safe. You can log in with an email and password, sign in instantly through GitHub or HackClub OAuth, register a hardware passkey for passwordless access, or layer in two-factor authentication for any of those flows. This page walks through every option from the moment you open the login page to the day-to-day management of sessions and API keys.
+
+## Email and password login
+
+On the login page, enter the email address and password you used when you registered. After a successful credential check you are redirected to your dashboard.
+
+If your account has two-factor authentication enabled, you are redirected to a verification step before the session is created. See [Two-factor authentication](#two-factor-authentication-totp) below.
+
+<Note>
+  Your email address must be verified before you can log in. If you have not confirmed your email, check your inbox for a verification message or request a new one from the login page.
+</Note>
+
+## Email verification
+
+After registration, EcliPanel sends a verification email to the address you provided. Click the link in that email to activate your account. If the link has expired or you did not receive the message, go to **Settings → Account** and choose **Resend verification email**.
+
+## Two-factor authentication (TOTP)
+
+Two-factor authentication adds a time-based one-time password to your login flow. You need an authenticator app such as Google Authenticator, Authy, or any TOTP-compatible app.
+
+<Steps>
+  <Step title="Open Settings">
+    Navigate to **Settings** from the left navigation bar, then select the **Security** tab.
+  </Step>
+  <Step title="Begin 2FA setup">
+    Click **Enable two-factor authentication**. EcliPanel generates a QR code and a secret key.
+  </Step>
+  <Step title="Scan the QR code">
+    Open your authenticator app and scan the displayed QR code. If your app does not support scanning, enter the secret key manually.
+  </Step>
+  <Step title="Verify the code">
+    Enter the six-digit code shown in your authenticator app and click **Verify**. EcliPanel confirms the setup.
+  </Step>
+  <Step title="Save backup codes">
+    Store the backup codes shown after verification in a safe place. You will need one if you lose access to your authenticator app.
+  </Step>
+</Steps>
+
+Once 2FA is active, every login prompts for your current TOTP code after your password is accepted. To disable 2FA, return to **Settings → Security** and click **Disable two-factor authentication**, then confirm with your current TOTP code.
+
+## Passkeys (WebAuthn)
+
+Passkeys let you log in without a password using a hardware security key, your device biometrics (Face ID, Windows Hello, Touch ID), or a compatible password manager. They are bound to your account and cannot be phished.
+
+### Registering a passkey
+
+<Steps>
+  <Step title="Open Settings">
+    Go to **Settings → Security** and find the **Passkeys** section.
+  </Step>
+  <Step title="Add a new passkey">
+    Click **Add passkey**. Your browser or operating system will ask you to authenticate using your device (biometric, PIN, or security key).
+  </Step>
+  <Step title="Name the passkey">
+    Give the passkey a recognisable name, for example "MacBook Touch ID" or "YubiKey 5". Click **Save**.
+  </Step>
+</Steps>
+
+The passkey now appears in your list under **Settings → Security**. You can register multiple passkeys — for example, one for your laptop and one as a backup hardware key.
+
+### Signing in with a passkey
+
+On the login page, click **Sign in with a passkey**. Your browser prompts you to select a registered passkey and authenticate with your device. No password is required.
+
+### Removing a passkey
+
+In **Settings → Security**, find the passkey you want to remove and click the delete icon next to it. You are asked to confirm before the key is revoked.
+
+## OAuth logins
+
+EcliPanel supports signing in through two external OAuth providers. When you use OAuth, your external account is linked to your EcliPanel account. You still need to verify your email if it is your first login.
+
+<CardGroup cols={2}>
+  <Card title="GitHub" icon="github">
+    Click **Continue with GitHub** on the login page. You are redirected to GitHub to authorise the connection, then returned to your EcliPanel dashboard.
+  </Card>
+  <Card title="HackClub" icon="slack">
+    Click **Continue with HackClub** on the login page. You are redirected to HackClub's authentication service, then returned to your dashboard once authorised.
+  </Card>
+</CardGroup>
+
+<Info>
+  OAuth logins go through the same email-verification requirement as email/password accounts. If your OAuth provider's email has not been verified in EcliPanel, you will be prompted to do so.
+</Info>
+
+## Password reset
+
+If you forget your password, click **Forgot password?** on the login page and enter your registered email address. EcliPanel sends a password-reset link to that address. Click the link, enter your new password, and confirm it. The link expires after a short window, so complete the reset promptly.
+
+<Warning>
+  Password reset links are single-use. If the link has already been used or has expired, request a new one from the login page.
+</Warning>
+
+## Session management
+
+Every successful login creates a session that identifies the device and browser. You can view all active sessions and revoke any of them from **Settings → Security → Sessions**.
+
+| Action | Where |
+|---|---|
+| View all active sessions | Settings → Security → Sessions |
+| Revoke a single session | Click **Revoke** next to the session |
+| Revoke all sessions | Click **Sign out of all sessions** |
+
+Revoking a session immediately invalidates it. Any browser or device using that session will be signed out on its next request.
+
+## API keys
+
+API keys let scripts and external tooling access EcliPanel without storing your password. Each key can be scoped to a subset of permissions.
+
+### Creating an API key
+
+<Steps>
+  <Step title="Open Settings">
+    Go to **Settings → API Keys**.
+  </Step>
+  <Step title="Create a key">
+    Click **New API key**, give it a descriptive name, and optionally set an expiry date. Choose the permissions this key needs.
+  </Step>
+  <Step title="Copy the key">
+    Your key is shown once immediately after creation. Copy it to a safe location — it will not be shown again.
+  </Step>
+</Steps>
+
+### Using an API key
+
+Send the key in the `Authorization` header on every request:
+
+```bash
+curl -H "Authorization: Bearer <your-api-key>" \
+     https://your-panel.example.com/api/servers
+```
+
+API keys respect their assigned permission scopes. A key created with only `servers:read` cannot modify server settings even if the owning account has broader access.
+
+### Managing and deleting keys
+
+All your keys are listed in **Settings → API Keys**. Click the delete icon next to a key to revoke it immediately. There is no way to recover a deleted key.
+
+<Tip>
+  Rotate API keys regularly, and create separate keys for each application or script so you can revoke one without disrupting others.
+</Tip>

@@ -1,0 +1,270 @@
+---
+title: "Game server REST API endpoints reference"
+description: "Provision, power-control, and monitor game servers. Covers creation, file management, backups, real-time console, databases, and sub-user access."
+---
+
+The server endpoints are the core of EcliPanel's API. Every action the frontend takes against a running game server—power signals, file browsing, real-time console, backups, and database credentials—flows through the routes documented here. All endpoints require a valid session cookie or API key.
+
+---
+
+## Server CRUD
+
+### List servers
+
+`GET /api/servers`
+
+Returns every server the authenticated user owns or has sub-user access to.
+
+<ResponseField name="id" type="string">UUID of the server.</ResponseField>
+<ResponseField name="name" type="string">Human-readable server name.</ResponseField>
+<ResponseField name="status" type="string">Current power state: `running`, `stopped`, `starting`, `stopping`.</ResponseField>
+<ResponseField name="nodeId" type="number">ID of the node the server runs on.</ResponseField>
+<ResponseField name="suspended" type="boolean">Whether the server is currently suspended.</ResponseField>
+
+```bash
+curl -X GET https://your-panel.example.com/api/servers \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Get server details
+
+`GET /api/servers/:id`
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+
+```bash
+curl https://your-panel.example.com/api/servers/abc123 \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Create server
+
+`POST /api/servers`
+
+<Warning>Creating a server allocates resources on the target node. Ensure the node has enough capacity before calling this endpoint.</Warning>
+
+<ParamField body="name" type="string" required>Display name for the server.</ParamField>
+<ParamField body="nodeId" type="number" required>ID of the node to deploy the server on.</ParamField>
+<ParamField body="eggId" type="number" required>Egg (server type) ID defining the runtime configuration.</ParamField>
+<ParamField body="memory" type="number">RAM allocation in megabytes.</ParamField>
+<ParamField body="disk" type="number">Disk allocation in megabytes.</ParamField>
+<ParamField body="cpu" type="number">CPU limit as a percentage (100 = one vCPU thread).</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/servers \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Minecraft SMP","nodeId":1,"eggId":3,"memory":2048,"disk":10240,"cpu":100}'
+```
+
+---
+
+### Update server
+
+`PUT /api/servers/:id`
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+<ParamField body="name" type="string">New display name.</ParamField>
+<ParamField body="memory" type="number">New RAM limit in megabytes.</ParamField>
+<ParamField body="disk" type="number">New disk limit in megabytes.</ParamField>
+<ParamField body="cpu" type="number">New CPU percentage limit.</ParamField>
+
+---
+
+### Delete server
+
+`DELETE /api/servers/:id`
+
+<Warning>Deletion is permanent. All server data is removed from the node immediately.</Warning>
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+
+```bash
+curl -X DELETE https://your-panel.example.com/api/servers/abc123 \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+## Power control
+
+### Send power signal
+
+`POST /api/servers/:id/power`
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+<ParamField body="signal" type="string" required>
+  One of `start`, `stop`, `restart`, or `kill`.
+</ParamField>
+
+<Note>The `kill` signal immediately terminates the server process without a graceful shutdown.</Note>
+
+```bash
+curl -X POST https://your-panel.example.com/api/servers/abc123/power \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"signal":"restart"}'
+```
+
+<ResponseField name="success" type="boolean">Whether the signal was dispatched to the node.</ResponseField>
+
+---
+
+## Files
+
+### List files
+
+`GET /api/servers/:id/files`
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+<ParamField query="directory" type="string" default="/">Directory path to list, relative to the server root.</ParamField>
+
+```bash
+curl "https://your-panel.example.com/api/servers/abc123/files?directory=/plugins" \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="name" type="string">File or directory name.</ResponseField>
+<ResponseField name="size" type="number">Size in bytes.</ResponseField>
+<ResponseField name="isDirectory" type="boolean">Whether the entry is a directory.</ResponseField>
+<ResponseField name="modifiedAt" type="string">ISO 8601 last-modified timestamp.</ResponseField>
+
+Additional file operations are available under the same `/api/servers/:id/files/` prefix:
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/servers/:id/files/contents` | GET | Read file contents |
+| `/api/servers/:id/files/download` | GET | Download a file |
+| `/api/servers/:id/files/upload` | POST | Upload a file |
+| `/api/servers/:id/files/write` | POST | Write content to a file |
+| `/api/servers/:id/files/delete` | POST | Delete one or more files |
+| `/api/servers/:id/files/create-directory` | POST | Create a directory |
+| `/api/servers/:id/files/archive` | POST | Archive files into a tarball |
+| `/api/servers/:id/files/move` | PUT | Move files |
+| `/api/servers/:id/files/rename` | PUT | Rename a file |
+| `/api/servers/:id/files/chmod` | POST | Change file permissions |
+
+---
+
+## Monitoring
+
+### Get live stats
+
+`GET /api/servers/:id/stats`
+
+Returns current CPU, RAM, and network I/O metrics.
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+
+<ResponseField name="cpuAbsolute" type="number">Current CPU usage percentage.</ResponseField>
+<ResponseField name="memoryBytes" type="number">RAM used in bytes.</ResponseField>
+<ResponseField name="memoryLimitBytes" type="number">Configured RAM limit in bytes.</ResponseField>
+<ResponseField name="networkRxBytes" type="number">Total bytes received.</ResponseField>
+<ResponseField name="networkTxBytes" type="number">Total bytes transmitted.</ResponseField>
+
+```bash
+curl https://your-panel.example.com/api/servers/abc123/stats \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Get server logs
+
+`GET /api/servers/:id/logs`
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+
+Returns recent console output as a plain-text or JSON array of log lines.
+
+---
+
+### Connect to console (WebSocket)
+
+`GET /api/servers/:id/console`
+
+<Note>This endpoint upgrades to a WebSocket connection. Use `ws://` or `wss://` as the scheme. Authentication is performed via a short-lived token passed in the `token` query parameter.</Note>
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+<ParamField query="token" type="string" required>Short-lived console auth token obtained from `/api/servers/:id/websocket`.</ParamField>
+
+---
+
+## Backups
+
+### List backups
+
+`GET /api/servers/:id/backups`
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+
+<ResponseField name="uuid" type="string">Backup unique identifier.</ResponseField>
+<ResponseField name="name" type="string">Backup name.</ResponseField>
+<ResponseField name="bytes" type="number">Backup size in bytes.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="completedAt" type="string">ISO 8601 completion timestamp, or `null` if in progress.</ResponseField>
+
+---
+
+### Restore backup
+
+`POST /api/servers/:id/backups/:bid/restore`
+
+<Warning>Restoring a backup overwrites the current server files. This action cannot be undone.</Warning>
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+<ParamField path="bid" type="string" required>Backup UUID.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/servers/abc123/backups/bkp-456/restore \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+## Databases
+
+### List databases
+
+`GET /api/servers/:id/databases`
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+
+<ResponseField name="id" type="number">Database record ID.</ResponseField>
+<ResponseField name="name" type="string">Database name.</ResponseField>
+<ResponseField name="host" type="string">Database host.</ResponseField>
+<ResponseField name="port" type="number">Database port.</ResponseField>
+
+### Get database credentials
+
+`GET /api/servers/:id/databases/:dbId/credentials`
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+<ParamField path="dbId" type="number" required>Database record ID.</ParamField>
+
+---
+
+## Sub-users
+
+### List sub-users
+
+`GET /api/servers/:id/subusers`
+
+Returns all users who have been granted access to the server with their permission set.
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+
+<ResponseField name="userId" type="number">Sub-user's account ID.</ResponseField>
+<ResponseField name="email" type="string">Sub-user's email address.</ResponseField>
+<ResponseField name="permissions" type="string[]">List of granted permission strings, e.g. `files`, `console`, `*`.</ResponseField>
+
+### Get sub-user detail
+
+`GET /api/servers/:id/subusers/:subId`
+
+<ParamField path="id" type="string" required>Server UUID.</ParamField>
+<ParamField path="subId" type="number" required>Sub-user record ID.</ParamField>

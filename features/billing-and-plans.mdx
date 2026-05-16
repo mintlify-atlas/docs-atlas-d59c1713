@@ -1,0 +1,119 @@
+---
+title: "Billing, subscription plans, and PDF invoicing"
+description: "Manage plans, place orders, and download PDF invoices. Admins apply plans directly and control plan visibility and resource limits from the admin panel."
+---
+
+EcliPanel includes a billing system that ties portal tier upgrades to orders. Plans define the resource limits and portal tier a user receives, orders record the purchase intent, and PDF invoices are generated server-side for each completed order. The entire billing subsystem is gated behind the `billing` feature flag — if your deployment does not need paid plans, you can disable it without affecting any other part of the panel.
+
+<Info>
+  Billing is optional. Set the `billing` feature flag to `false` in your panel settings to hide billing UI and disable billing endpoints for all users.
+</Info>
+
+## Plans
+
+A **Plan** represents a purchasable tier with specific resource allocations. Each plan has the following fields from the `Plan` entity:
+
+| Field                | Type    | Description                                              |
+| -------------------- | ------- | -------------------------------------------------------- |
+| `name`               | string  | Display name shown in the billing UI                     |
+| `type`               | string  | Portal tier this plan grants (`free`, `paid`, etc.)      |
+| `price`              | float   | Price in your configured currency                        |
+| `memory`             | number  | RAM allocation in MB                                     |
+| `disk`               | number  | Disk allocation in MB                                    |
+| `cpu`                | number  | CPU allocation (percentage)                              |
+| `serverLimit`        | number  | Maximum number of servers                                |
+| `databases`          | number  | Number of databases per server                           |
+| `backups`            | number  | Number of backups per server                             |
+| `portCount`          | number  | Number of network port allocations per server            |
+| `tunnelPortCount`    | number  | Number of tunnel allocations included in the plan        |
+| `hiddenFromBilling`  | boolean | Hides the plan from the user-facing billing page         |
+
+Plans can also carry an arbitrary `features` JSON object for custom feature flags.
+
+### Listing and managing plans
+
+```bash
+GET  /api/plans              # list all public plans
+GET  /api/plans/:id          # plan detail
+GET  /api/admin/plans        # admin: list all plans including hidden
+POST /api/admin/plans        # admin: create a plan
+PUT  /api/admin/plans/:id    # admin: update a plan
+```
+
+To reapply a plan's limits to all users currently on that plan (for example after updating resource values):
+
+```bash
+POST /api/admin/plans/:id/reapply-limits
+```
+
+## Placing orders
+
+Users place an order to request a plan upgrade. The order is recorded and an admin can then approve it by applying the plan:
+
+```bash
+GET  /api/orders             # list my orders
+POST /api/orders             # create a new order
+GET  /api/orders/:id         # order detail
+```
+
+## Viewing invoices
+
+Each order has a downloadable PDF invoice generated server-side using `pdfkit`. The PDF includes:
+
+- Company logo (configured via `INVOICE_LOGO_PATH` environment variable)
+- Issuer details (`COMPANY_NAME`, `INVOICE_ISSUED_FROM_NAME`, address, city, email)
+- Invoice number, date, and bill-to details for the purchasing user
+
+```bash
+GET /api/orders/:id/invoice
+```
+
+The endpoint streams the rendered PDF directly to the browser as `application/pdf`.
+
+<Note>
+  PDF generation uses a dedicated worker (`pdfWorker`) to avoid blocking the main Elysia event loop. If the worker fails, the handler falls back to an inline PDFDocument render.
+</Note>
+
+## Admin order management
+
+Admins can view and manage all orders across every user:
+
+```bash
+GET /api/admin/orders           # list all orders
+GET /api/admin/orders/:id       # order detail
+```
+
+### Applying a plan to a user
+
+The most common admin billing action is manually applying a plan to a user after their payment is confirmed outside the panel (bank transfer, manual approval, etc.):
+
+```bash
+POST /api/admin/users/:id/apply-plan
+```
+
+```json
+{ "planId": 3 }
+```
+
+To check which plan is currently applied to a user:
+
+```bash
+GET /api/admin/users/:id/current-plan
+```
+
+To cancel a user's active plan:
+
+```bash
+POST /api/admin/users/:id/cancel-plan
+```
+
+## Billing subscription endpoint
+
+If you integrate with an external payment processor (Stripe, etc.) you can wire it to the subscription endpoint:
+
+```bash
+POST /api/billing/subscribe
+GET  /api/billing/invoices
+```
+
+These endpoints exist as hooks for custom billing integrations. The panel does not include a default payment processor — connect your own via environment-level configuration.

@@ -1,0 +1,210 @@
+---
+title: 'Eggs: server type templates and configuration'
+description: 'Eggs are the templates that define how a server type is installed, started, and configured. Learn how to create, import, edit, and sync Eggs in EcliPanel.'
+icon: 'egg'
+---
+
+An **Egg** is EcliPanel's term for a server type template. Every game server or application server is backed by an Egg that specifies its Docker image, startup command, environment variables, install script, and process configuration. When a user creates a new server they pick an Egg, which Wings then uses to provision, install, and manage the container. Admins create and maintain Eggs through the **Eggs** tab in the Staff Portal (requires the `eggs:read` permission) or directly via the admin API.
+
+## What Eggs define
+
+<AccordionGroup>
+  <Accordion title="name and description">
+    A human-readable name shown to users in the server creation flow (e.g., `Minecraft Java Edition`) and an optional description. The `author` field records who created or last imported the Egg.
+  </Accordion>
+
+  <Accordion title="dockerImage and dockerImages">
+    The primary Docker image used to run the server container (e.g., `ghcr.io/pterodactyl/yolks:java_21`). For Eggs that support multiple runtime versions, `dockerImages` is a JSON object mapping a display label to an image reference:
+
+    ```json
+    {
+      "Java 21": "ghcr.io/pterodactyl/yolks:java_21",
+      "Java 17": "ghcr.io/pterodactyl/yolks:java_17"
+    }
+    ```
+
+    When `dockerImages` is set, users can choose their preferred image at server creation or in startup settings.
+  </Accordion>
+
+  <Accordion title="startup">
+    The startup command template executed inside the container. It may contain `{{VAR_NAME}}` placeholders that are substituted with the corresponding environment variable values at runtime. For example:
+
+    ```
+    java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar {{SERVER_JARFILE}}
+    ```
+  </Accordion>
+
+  <Accordion title="envVars (environment variables)">
+    A JSON array of variable definitions. Each entry describes one configurable parameter:
+
+    ```json
+    [
+      {
+        "name": "Server Jar File",
+        "description": "The name of the server jar to run.",
+        "env_variable": "SERVER_JARFILE",
+        "default_value": "server.jar",
+        "user_viewable": true,
+        "user_editable": true,
+        "rules": "required|string|max:20"
+      }
+    ]
+    ```
+
+    `user_viewable` and `user_editable` control whether the user can see or change the value from their server startup page.
+  </Accordion>
+
+  <Accordion title="installScript">
+    A JSON object describing the one-time installation script that Wings runs when a server is first created:
+
+    ```json
+    {
+      "script": "#!/bin/bash\napt-get update && apt-get install -y curl\ncurl -Lo server.jar https://example.com/server.jar",
+      "container": "ghcr.io/pterodactyl/installers:alpine",
+      "entrypoint": "bash"
+    }
+    ```
+
+    The install script runs in a separate, disposable container specified by `container` using the given `entrypoint`.
+  </Accordion>
+
+  <Accordion title="processConfig">
+    Controls how Wings detects startup completion and handles graceful shutdown:
+
+    ```json
+    {
+      "startup": {
+        "done": ["Done ("],
+        "strip_ansi": true
+      },
+      "stop": {
+        "type": "command",
+        "value": "stop"
+      }
+    }
+    ```
+
+    `startup.done` is a list of strings; Wings watches the container's stdout and considers the server started when it sees any of them. `stop.type` can be `command` (sends a console command), `signal` (sends a Unix signal), or `stop`.
+  </Accordion>
+
+  <Accordion title="configFiles">
+    A JSON object mapping config file paths inside the container to template strings. Wings writes these files on server start, substituting environment variable placeholders. Example:
+
+    ```json
+    {
+      "server.properties": "server-port={{SERVER_PORT}}\nmotd={{SERVER_NAME}}"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="allowedPortals and visibility">
+    `allowedPortals` is a string array restricting which portal tiers can use this Egg (e.g., `["paid", "enterprise"]`). The `visible` boolean controls whether non-admin users can see the Egg in the server creation flow. Admins always see all Eggs regardless of `visible`.
+  </Accordion>
+
+  <Accordion title="rootless and requiresKvm">
+    `rootless: true` instructs Wings to run the container without root privileges. `requiresKvm: true` marks Eggs that need KVM hardware virtualization (e.g., full virtual machine images) and restricts provisioning to nodes with KVM support.
+  </Accordion>
+
+  <Accordion title="fileDenylist and features">
+    `fileDenylist` is a string array of glob patterns for files that users are blocked from accessing or downloading through the file manager. `features` is a string array of capability tags (e.g., `["eula"]`) that can enable special Wings behaviors.
+  </Accordion>
+</AccordionGroup>
+
+## Importing Eggs
+
+EcliPanel accepts Eggs in the Pterodactyl Definition Language v2 (PTDL v2) JSON format, which means community Eggs from the Pterodactyl ecosystem are directly importable.
+
+<Steps>
+  <Step title="Obtain a PTDL v2 JSON file">
+    Download an Egg JSON from a community repository or export one from another panel. The file typically contains a top-level `_comment` key and an `exported_at` timestamp alongside all Egg fields.
+  </Step>
+  <Step title="Import via URL or raw JSON">
+    Send a `POST` request to the import endpoint. You can supply either a publicly reachable URL or the raw JSON body:
+
+    <CodeGroup>
+
+    ```bash Import from URL
+    curl -X POST https://panel.example.com/api/admin/eggs/import \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"url": "https://raw.githubusercontent.com/example/eggs/main/minecraft.json"}'
+    ```
+
+    ```bash Import raw JSON
+    curl -X POST https://panel.example.com/api/admin/eggs/import \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d @minecraft.json
+    ```
+
+    </CodeGroup>
+
+    The backend fetches the URL (if provided), parses the PTDL v2 envelope, and upserts the Egg into the database.
+  </Step>
+  <Step title="Verify the import">
+    After a successful import the endpoint returns the saved Egg object. Confirm it appears in the Eggs tab in the Staff Portal under `GET /api/admin/eggs`.
+  </Step>
+</Steps>
+
+## Creating Eggs manually
+
+To create an Egg from scratch, `POST /api/admin/eggs` with at minimum `name`, `dockerImage`, and `startup`:
+
+```http
+POST /api/admin/eggs
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{
+  "name": "Node.js App",
+  "description": "Generic Node.js application server.",
+  "dockerImage": "ghcr.io/pterodactyl/yolks:nodejs_20",
+  "startup": "node {{MAIN_FILE}}",
+  "envVars": [
+    {
+      "name": "Main File",
+      "env_variable": "MAIN_FILE",
+      "default_value": "index.js",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string"
+    }
+  ],
+  "visible": true
+}
+```
+
+A `201 Created` response contains the new Egg with its assigned `id`.
+
+## Editing Eggs
+
+Update any field on an existing Egg with `PUT /api/admin/eggs/:id`. After saving, EcliPanel automatically pushes the updated configuration to all servers using that Egg via Wings, unless a specific server has opted out by setting `autoSyncOnEggChange: false` in its server config.
+
+You can also trigger a manual sync for all servers belonging to an Egg:
+
+```http
+POST /api/admin/eggs/:id/sync
+Content-Type: application/json
+
+{ "respectOptOut": true }
+```
+
+Setting `respectOptOut: true` skips servers that have explicitly disabled auto-sync. The response lists each server UUID and its sync result (`synced`, `skipped_opt_out`, `node_service_unavailable`, or `error`).
+
+## Mounts
+
+**Mounts** are shared volume directories that can be attached to one or more servers, enabling persistent shared storage (e.g., a shared mod pack or asset directory). Mounts are managed separately from Eggs but are closely related to server configuration.
+
+- List all mounts: `GET /api/admin/mounts`
+- Attach a mount to a server: `POST /api/admin/servers/:id/mounts`
+- Remove a mount from a server: `DELETE /api/admin/servers/:id/mounts/:mountId`
+
+Users can view their server's attached mounts at `GET /api/servers/:id/mounts`. Mounts are defined at the panel level and then selectively assigned to servers that need them.
+
+## Panel settings
+
+Panel-wide settings — including feature flags — are stored as key/value pairs in the `PanelSetting` table and managed through `GET /api/admin/settings` and `PATCH /api/admin/settings`. The `panelFeatureToggles` key holds a JSON object controlling which features are active across the entire panel. See [Feature flags](/admin/feature-flags) for the complete list and their effects.
+
+<Tip>
+  You can read the current public feature state (without admin credentials) at `GET /api/public/features`. This is what the frontend uses to show or hide nav items for regular users.
+</Tip>

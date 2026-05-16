@@ -1,0 +1,269 @@
+---
+title: "Production deployment: systemd units and Nginx config"
+description: "Install the included systemd unit files, manage service lifecycle, and configure Nginx as a reverse proxy for production deployments."
+---
+
+EcliPanel ships three systemd unit files in the `systemd/` directory of the repository — one for the backend, one for the frontend, and one for the Rust anti-abuse daemon. These units are what the production deployment at [ecli.app](https://ecli.app) uses. Before enabling them you must update the `WorkingDirectory` (and the `ExecStart` path in the anti-abuse unit) to match wherever you cloned the repository on your host.
+
+<Warning>
+  The unit files reference `/srv/samba/shared/EcliPanel/v3/` as their working directory. This is the path used in the reference deployment. You must change every occurrence to your actual installation path before copying the files into `/etc/systemd/system/`.
+</Warning>
+
+## Unit file reference
+
+The three units are described below. Read each one, adjust the paths, and copy it to `/etc/systemd/system/` before running `systemctl daemon-reload`.
+
+### eclipanel-backend.service
+
+Runs the backend API process using `./start.sh` inside the `backend/` directory. The script sources `.env` automatically and falls back to safe defaults for any unset variable, then starts Bun if it is available on `PATH`.
+
+```ini eclipanel-backend.service
+[Unit]
+Description=EcliPanel Backend
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/samba/shared/EcliPanel/v3/backend
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/bin/bash -lc './start.sh'
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+KillMode=control-group
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=eclipanel-backend
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### eclipanel-frontend.service
+
+Runs the Next.js frontend using `./start.sh --port ${PORT}`. The unit sets `PORT=3001` via an `Environment=` directive; adjust this value if your frontend listens on a different port.
+
+```ini eclipanel-frontend.service
+[Unit]
+Description=EcliPanel Frontend
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/samba/shared/EcliPanel/v3/frontend
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/bin/bash -lc './start.sh --port ${PORT}'
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+KillMode=control-group
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=eclipanel-frontend
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### eclipanel-antiabuse.service
+
+Runs the compiled Rust anti-abuse daemon. This unit uses `Restart=always` (rather than `on-failure`) because the daemon is expected to be long-lived, and `NoNewPrivileges=true` for additional process hardening. The `EnvironmentFile` directive loads the anti-abuse daemon's own `.env` file.
+
+<Note>
+  The anti-abuse daemon must be built with Cargo before the service can start. Run `cargo build --release` inside `antiabuse/` to produce the binary at `antiabuse/target/release/eclipanel-antiabuse`.
+</Note>
+
+```ini eclipanel-antiabuse.service
+[Unit]
+Description=EcliPanel Anti-Abuse Detector (Rust)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/samba/shared/EcliPanel/v3/antiabuse
+EnvironmentFile=/srv/samba/shared/EcliPanel/v3/antiabuse/.env
+ExecStart=/srv/samba/shared/EcliPanel/v3/antiabuse/target/release/eclipanel-antiabuse
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+## Installing the units
+
+<Steps>
+
+<Step title="Update paths in the unit files">
+
+Open each file and replace every occurrence of `/srv/samba/shared/EcliPanel/v3` with your actual installation path:
+
+```bash
+# Example — replace the path for your setup
+sed -i 's|/srv/samba/shared/EcliPanel/v3|/srv/eclipanel|g' \
+  systemd/eclipanel-backend.service \
+  systemd/eclipanel-frontend.service \
+  systemd/eclipanel-antiabuse.service
+```
+
+</Step>
+
+<Step title="Copy unit files to systemd">
+
+```bash
+sudo cp systemd/eclipanel-backend.service   /etc/systemd/system/
+sudo cp systemd/eclipanel-frontend.service  /etc/systemd/system/
+sudo cp systemd/eclipanel-antiabuse.service /etc/systemd/system/
+```
+
+</Step>
+
+<Step title="Reload systemd and enable the services">
+
+```bash
+sudo systemctl daemon-reload
+
+sudo systemctl enable --now eclipanel-backend
+sudo systemctl enable --now eclipanel-frontend
+sudo systemctl enable --now eclipanel-antiabuse
+```
+
+The `--now` flag starts each service immediately after enabling it.
+
+</Step>
+
+<Step title="Verify each service is running">
+
+```bash
+sudo systemctl status eclipanel-backend
+sudo systemctl status eclipanel-frontend
+sudo systemctl status eclipanel-antiabuse
+```
+
+All three should show `active (running)`. If a unit fails, check the logs before proceeding.
+
+</Step>
+
+</Steps>
+
+---
+
+## Service management
+
+Once the units are installed, use standard `systemctl` and `journalctl` commands to manage them.
+
+```bash
+# Start, stop, and restart
+sudo systemctl start   eclipanel-backend
+sudo systemctl stop    eclipanel-backend
+sudo systemctl restart eclipanel-backend
+
+# Enable or disable autostart on boot
+sudo systemctl enable  eclipanel-backend
+sudo systemctl disable eclipanel-backend
+
+# Check status
+sudo systemctl status eclipanel-backend
+
+# Follow live logs
+sudo journalctl -u eclipanel-backend -f
+
+# View the last 100 lines of logs
+sudo journalctl -u eclipanel-backend -n 100
+
+# View logs from all three services together
+sudo journalctl -u eclipanel-backend -u eclipanel-frontend -u eclipanel-antiabuse -f
+```
+
+---
+
+## Nginx reverse proxy
+
+Running Nginx in front of EcliPanel is required for production. Nginx terminates TLS, handles HTTP-to-HTTPS redirects, and forwards requests to the backend and frontend processes on their internal ports.
+
+<Info>
+  The frontend already proxies `/api/*` and `/wings/*` internally via Next.js rewrites, so in most setups you only need a single Nginx server block pointing at the frontend port. A separate server block for the backend is useful if you want to expose the API on its own subdomain (e.g. `backend.example.com`).
+</Info>
+
+### Suggested Nginx configuration
+
+Replace `panel.example.com`, `backend.example.com`, and the port numbers to match your setup. Run `certbot --nginx -d panel.example.com -d backend.example.com` (or your preferred ACME client) to obtain TLS certificates.
+
+```nginx
+# Frontend — serves the Next.js panel
+server {
+    listen 80;
+    server_name panel.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name panel.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/panel.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/panel.example.com/privkey.pem;
+
+    location / {
+        proxy_pass         http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   Upgrade           $http_upgrade;
+        proxy_set_header   Connection        "upgrade";
+        proxy_read_timeout 86400s;
+    }
+}
+
+# Backend — exposes the Elysia REST API on its own subdomain (optional)
+server {
+    listen 80;
+    server_name backend.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name backend.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/backend.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/backend.example.com/privkey.pem;
+
+    location / {
+        proxy_pass         http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   Upgrade           $http_upgrade;
+        proxy_set_header   Connection        "upgrade";
+        proxy_read_timeout 86400s;
+    }
+}
+```
+
+<Tip>
+  Set `proxy_read_timeout 86400s` (24 hours) on any location that proxies WebSocket connections. This prevents Nginx from closing long-lived console connections while a user has a server terminal open.
+</Tip>
+
+After writing the config, test and reload Nginx:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```

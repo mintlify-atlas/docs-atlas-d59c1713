@@ -1,0 +1,200 @@
+---
+title: "Organisation, member, and DNS API endpoints"
+description: "Create and manage organisations, invite members, assign roles, and control per-organisation DNS zones. Enterprise nodes are scoped to organisations."
+---
+
+Organisations are the multi-user collaboration layer in EcliPanel. An organisation groups users under a shared namespace, controls which enterprise nodes they can provision servers on, and owns its own DNS zones. The owner creates the organisation, invites members, and delegates administrative authority via roles.
+
+<Note>When an organisation is created, a DNS zone is automatically provisioned using the organisation's `handle` as the zone name.</Note>
+
+---
+
+## Organisation CRUD
+
+### List organisations
+
+`GET /api/organisations`
+
+Returns all organisations the authenticated user owns or belongs to, including their membership role in each.
+
+```bash
+curl https://your-panel.example.com/api/organisations \
+  -H "Cookie: session=<token>"
+```
+
+<ResponseField name="id" type="number">Organisation ID.</ResponseField>
+<ResponseField name="name" type="string">Display name.</ResponseField>
+<ResponseField name="handle" type="string">Unique slug in reverse-DNS format (e.g. `acme.example.com`).</ResponseField>
+<ResponseField name="ownerId" type="number">User ID of the organisation owner.</ResponseField>
+<ResponseField name="orgRole" type="string">The authenticated user's role: `owner`, `admin`, or `member`.</ResponseField>
+
+---
+
+### Create organisation
+
+`POST /api/organisations`
+
+**Required permission:** `org:create`
+
+<ParamField body="name" type="string" required>Human-readable organisation name.</ParamField>
+<ParamField body="handle" type="string" required>
+  Unique organisation handle in reverse-DNS dot notation (e.g. `acme.example.com`). Must match the pattern `([a-z0-9]+\.)+[a-z]{2,}`.
+</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/organisations \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Acme Hosting","handle":"hosting.acme.com"}'
+```
+
+<ResponseField name="success" type="boolean">Whether creation succeeded.</ResponseField>
+<ResponseField name="org" type="object">
+  <Expandable title="properties">
+    <ResponseField name="id" type="number">New organisation ID.</ResponseField>
+    <ResponseField name="name" type="string">Organisation name.</ResponseField>
+    <ResponseField name="handle" type="string">Organisation handle.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Get organisation details
+
+`GET /api/organisations/:id`
+
+<ParamField path="id" type="number" required>Organisation ID.</ParamField>
+
+---
+
+### Update organisation
+
+`PUT /api/organisations/:id`
+
+<ParamField path="id" type="number" required>Organisation ID.</ParamField>
+<ParamField body="name" type="string">New display name.</ParamField>
+
+<Note>Update operations are rate-limited to 6 requests per 60 seconds per user.</Note>
+
+---
+
+### Delete organisation
+
+`DELETE /api/organisations/:id`
+
+<Warning>Deleting an organisation removes all associated memberships and DNS zones. This action cannot be undone.</Warning>
+
+<ParamField path="id" type="number" required>Organisation ID.</ParamField>
+
+---
+
+## Member management
+
+### List members
+
+`GET /api/organisations/:id/users`
+
+<ParamField path="id" type="number" required>Organisation ID.</ParamField>
+
+<ResponseField name="id" type="number">User ID.</ResponseField>
+<ResponseField name="email" type="string">User email address.</ResponseField>
+<ResponseField name="firstName" type="string">First name.</ResponseField>
+<ResponseField name="lastName" type="string">Last name.</ResponseField>
+<ResponseField name="orgRole" type="string">Member's role: `owner`, `admin`, or `member`.</ResponseField>
+
+```bash
+curl https://your-panel.example.com/api/organisations/42/users \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Invite a user
+
+`POST /api/organisations/:id/invite`
+
+Sends an invitation email to a user. They must accept via `POST /api/organisations/accept-invite`.
+
+<ParamField path="id" type="number" required>Organisation ID.</ParamField>
+<ParamField body="email" type="string" required>Email address of the user to invite.</ParamField>
+<ParamField body="role" type="string">Role to assign on acceptance: `admin` or `member`. Defaults to `member`.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/organisations/42/invite \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"teammate@example.com","role":"admin"}'
+```
+
+---
+
+### Update member role
+
+`POST /api/organisations/:id/users/:userId/role`
+
+<ParamField path="id" type="number" required>Organisation ID.</ParamField>
+<ParamField path="userId" type="number" required>User ID to update.</ParamField>
+<ParamField body="role" type="string" required>New role: `admin` or `member`.</ParamField>
+
+```bash
+curl -X POST https://your-panel.example.com/api/organisations/42/users/99/role \
+  -H "Cookie: session=<token>" \
+  -H "Content-Type: application/json" \
+  -d '{"role":"admin"}'
+```
+
+---
+
+### Remove member
+
+`DELETE /api/organisations/:id/users/:userId`
+
+<ParamField path="id" type="number" required>Organisation ID.</ParamField>
+<ParamField path="userId" type="number" required>User ID to remove.</ParamField>
+
+---
+
+## DNS zones
+
+### List DNS zones
+
+`GET /api/organisations/:id/dns/zones`
+
+Returns all DNS zones owned by the organisation.
+
+<ParamField path="id" type="number" required>Organisation ID.</ParamField>
+
+<ResponseField name="id" type="number">Zone ID.</ResponseField>
+<ResponseField name="name" type="string">Zone name (mirrors the organisation handle).</ResponseField>
+<ResponseField name="kind" type="string">Zone provider: `cloudflare` or custom.</ResponseField>
+<ResponseField name="status" type="string">Zone status: `active` or `pending`.</ResponseField>
+
+```bash
+curl https://your-panel.example.com/api/organisations/42/dns/zones \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+### Get zone
+
+`GET /api/organisations/:id/dns/zones/:zoneId`
+
+<ParamField path="id" type="number" required>Organisation ID.</ParamField>
+<ParamField path="zoneId" type="number" required>DNS zone ID.</ParamField>
+
+---
+
+### DNS record endpoints
+
+Records within a zone are managed at `/api/organisations/:id/dns/zones/:zoneId/records`.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/organisations/:id/dns/zones/:zoneId/records` | GET | List all records in the zone |
+| `/api/organisations/:id/dns/zones/:zoneId/records` | POST | Create a DNS record |
+| `/api/organisations/:id/dns/zones/:zoneId/records/:recordId` | GET | Get record details |
+| `/api/organisations/:id/dns/zones/:zoneId/records/:recordId` | PUT | Update a DNS record |
+| `/api/organisations/:id/dns/zones/:zoneId/records/:recordId` | DELETE | Delete a DNS record |
+
+<Note>DNS mutation endpoints are rate-limited. Exceeding the limit returns a `429` response with a `Retry-After` header.</Note>

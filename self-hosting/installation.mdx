@@ -1,0 +1,198 @@
+---
+title: "Install and self-host EcliPanel from source"
+description: "Step-by-step instructions for installing the EcliPanel backend, frontend, and wings-rs node agent on a Linux server and promoting your first admin."
+---
+
+EcliPanel ships as two separate processes — a Bun/Elysia REST API (the backend) and a Next.js application (the frontend) — plus one or more wings-rs nodes that execute server workloads. This guide walks you through installing every component on a fresh Linux host. Complete each section in order; the backend must be running before you register your first wings node, and the frontend must be configured to point at the backend before users can sign in.
+
+<Warning>
+  EcliPanel is built against **wings-rs** ([calagopus/wings](https://github.com/calagopus/wings)). Do **not** use the stock Pterodactyl wings-go daemon — most features will not work and the panel will behave incorrectly.
+</Warning>
+
+## Prerequisites
+
+Before you begin, ensure the following are installed on your host:
+
+| Dependency | Purpose | Minimum version |
+|---|---|---|
+| [Bun](https://bun.sh) | Backend runtime and package manager | 1.x |
+| Node.js | Optional — only needed if you pre-compile with `build.sh` | 20 LTS |
+| pnpm | Frontend package manager | 8.x |
+| MariaDB | Primary relational database | 10.6+ |
+| Redis | Session cache and queue | 7.x |
+| ffmpeg | Audio processing for captcha | any |
+| espeak | Text-to-speech for audio captcha | any |
+
+<Note>
+  `ffmpeg` and `espeak` are only required if you enable the audio captcha feature (`CAPTCHA_SECRET` / `CAPTCHA_INVISIBLE_SECRET`). You can skip them and add them later.
+</Note>
+
+Install the system packages on Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y mariadb-server redis-server ffmpeg espeak
+```
+
+Install Bun:
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+Install pnpm:
+
+```bash
+npm install -g pnpm
+```
+
+## Installation steps
+
+<Steps>
+
+<Step title="Install wings-rs">
+
+Follow the installation instructions in the [calagopus/wings](https://github.com/calagopus/wings) repository to build and configure the node agent on each server host. Complete the wings configuration first, then return here to finish the panel setup. After the backend and frontend are running you will register each node from the admin panel.
+
+</Step>
+
+<Step title="Clone the repository">
+
+Clone EcliPanel to your preferred path. The examples below use `/srv/eclipanel` — adjust to match your environment.
+
+```bash
+git clone https://github.com/thenoname-gurl/EcliPanel.git /srv/eclipanel
+cd /srv/eclipanel
+```
+
+</Step>
+
+<Step title="Set up the backend">
+
+Move into the `backend` directory and install dependencies:
+
+```bash
+cd /srv/eclipanel/backend
+bun install
+```
+
+Copy the example environment file and open it for editing:
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+See the [environment variable reference](/self-hosting/configuration) for every available option. At minimum you must set `DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME`, `PORT`, `FRONTEND_URL`, `PANEL_URL`, `JWT_SECRET`, and `NODE_ENCRYPTION_KEY`.
+
+Generate the required secrets with the built-in helper scripts:
+
+```bash
+# Generates JWT_SECRET and NODE_ENCRYPTION_KEY and prints them
+bun run gen:jwt-secret
+
+# Generate NODE_PQ_ENCRYPTION_SEED separately
+bun -e "console.log((await import('crypto')).randomBytes(64).toString('base64'))"
+```
+
+Copy each printed value into the corresponding variable in `.env`.
+
+<Warning>
+  Never reuse or hard-code secrets. Treat `JWT_SECRET`, `NODE_ENCRYPTION_KEY`, and `NODE_PQ_ENCRYPTION_SEED` like passwords — store them securely and rotate them if they are ever exposed.
+</Warning>
+
+Seed the default role (`rootAdmin`) into the database:
+
+```bash
+bun run gen:default-role
+```
+
+</Step>
+
+<Step title="Set up the frontend">
+
+Move into the `frontend` directory and install dependencies:
+
+```bash
+cd /srv/eclipanel/frontend
+pnpm install
+```
+
+Copy the example environment file and edit it:
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+The frontend `.env` controls how the Next.js process reaches the backend and Wings nodes at build time and runtime. Set the following variables:
+
+| Variable | Description |
+|---|---|
+| `BACKEND_URL` | Internal URL the Next.js server uses to proxy API requests, e.g. `http://localhost:4000` |
+| `NEXT_PUBLIC_API_BASE` | Public-facing API base URL shown to browsers |
+| `NEXT_PUBLIC_WINGS_BASE` | Public-facing Wings base URL for WebSocket proxying |
+
+Optionally edit `lib/panel-config.ts` to update branding (panel name, logo path, tagline) and enable or disable feature flags:
+
+```bash
+nano lib/panel-config.ts
+```
+
+</Step>
+
+<Step title="Promote your first admin user">
+
+Register an account through the panel, then promote it to `rootAdmin` from the backend directory:
+
+```bash
+cd /srv/eclipanel/backend
+bun run promote -- admin@example.com
+```
+
+You can pass an explicit role as a second argument if needed:
+
+```bash
+bun run promote -- admin@example.com rootAdmin
+```
+
+</Step>
+
+<Step title="Start both services">
+
+**Backend** — run directly with Bun (recommended):
+
+<CodeGroup>
+
+```bash Start with Bun
+cd /srv/eclipanel/backend
+./start.sh
+```
+
+```bash Start with build step (Node fallback)
+cd /srv/eclipanel/backend
+./build.sh   # compiles TypeScript via bun tsc
+./start.sh
+```
+
+</CodeGroup>
+
+The backend starts on the port defined by `PORT` in `.env` (default `4000`).
+
+**Frontend** — build and start in production mode:
+
+```bash
+cd /srv/eclipanel/frontend
+bun run build
+./start.sh --port 3000
+```
+
+The frontend listens on port `3000` by default and proxies `/api/*` requests to the backend and `/wings/*` to the Wings node via the rewrites defined in `next.config.mjs`.
+
+</Step>
+
+</Steps>
+
+## Next steps
+
+For a production deployment you should run both services under systemd and expose them behind an Nginx reverse proxy. See [Deploy EcliPanel with systemd](/self-hosting/systemd-deployment) for unit file installation instructions and a suggested Nginx configuration.
